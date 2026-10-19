@@ -108,7 +108,7 @@ jobs:
       CF_HOSTNAME: ${{ vars.CF_HOSTNAME }}
     steps:
       - name: Checkout (scripts + web assets)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
           sparse-checkout: .github
