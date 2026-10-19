@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1020">
+<title>کروم‌بوک ابری — GitHub Actions</title>
+<style>
+  @font-face{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/fonts/webfonts/Vazirmatn-Regular.woff2) format('woff2');font-weight:400;font-display:swap}
+  @font-face{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/fonts/webfonts/Vazirmatn-Bold.woff2) format('woff2');font-weight:700;font-display:swap}
+  :root{
+    --bg:#0b1020; --card:#121a2e; --line:#233050; --text:#e8ecf5; --dim:#9fb0cf;
+    --accent:#4285f4; --accent2:#34a853; --warn:#fbbc05;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; min-height:100%; color:var(--text);
+    font-family:Vazirmatn,"Noto Sans Arabic","Segoe UI",Tahoma,sans-serif;
+    background:
+      radial-gradient(900px 500px at 78% 12%, rgba(66,133,244,.35), transparent 60%),
+      radial-gradient(700px 480px at 15% 85%, rgba(52,168,83,.22), transparent 60%),
+      linear-gradient(160deg,#16233f 0%, #0b1020 55%, #070a13 100%);
+    display:flex; align-items:center; justify-content:center; padding:28px 16px;
+  }
+  .card{
+    width:100%; max-width:640px; background:rgba(18,26,46,.86); border:1px solid var(--line);
+    border-radius:22px; padding:30px 26px 24px; backdrop-filter:blur(8px);
+    box-shadow:0 24px 70px rgba(0,0,0,.55);
+  }
+  .logo{display:flex; align-items:center; gap:14px; margin-bottom:6px}
+  .logo svg{width:54px;height:54px;flex:0 0 auto}
+  h1{font-size:1.5rem; margin:0; letter-spacing:-.2px}
+  .sub{color:var(--dim); font-size:.95rem; line-height:1.9; margin:10px 0 22px}
+  a.primary{
+    display:block; text-align:center; text-decoration:none; font-weight:700; font-size:1.1rem;
+    color:#fff; background:linear-gradient(135deg,#4285f4,#2b6fe0); padding:15px 18px; border-radius:14px;
+    box-shadow:0 10px 26px rgba(66,133,244,.35); transition:transform .12s ease, filter .12s ease;
+  }
+  a.primary:hover{transform:translateY(-1px); filter:brightness(1.06)}
+  .row{display:flex; flex-wrap:wrap; gap:10px; margin-top:12px}
+  a.ghost{
+    flex:1 1 auto; text-align:center; text-decoration:none; color:var(--text);
+    border:1px solid var(--line); background:#0f1729; padding:10px 12px; border-radius:12px; font-size:.86rem;
+  }
+  a.ghost:hover{border-color:var(--accent)}
+  ul.tips{margin:22px 0 0; padding:0; list-style:none; color:var(--dim); font-size:.87rem; line-height:2}
+  ul.tips li{padding-inline-start:20px; position:relative}
+  ul.tips li::before{content:"•"; position:absolute; inset-inline-start:6px; color:var(--accent)}
+  .meta{
+    margin-top:20px; border-top:1px dashed var(--line); padding-top:16px;
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px 16px; font-size:.82rem; color:var(--dim)
+  }
+  .meta b{display:block; color:var(--text); font-size:.92rem; margin-top:2px; direction:ltr; text-align:right; word-break:break-all}
+  .link{display:flex; gap:8px; margin-top:16px}
+  .link input{
+    flex:1 1 auto; min-width:0; direction:ltr; background:#0d1424; color:var(--dim);
+    border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:.78rem
+  }
+  .link button{
+    background:#1b2740; color:var(--text); border:1px solid var(--line); border-radius:10px;
+    padding:0 16px; cursor:pointer; font-family:inherit
+  }
+  .link button:hover{border-color:var(--accent)}
+  .note{margin-top:14px; font-size:.78rem; color:var(--warn); line-height:1.9}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="logo">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="32" cy="32" r="29" fill="#0f1729" stroke="#4285f4" stroke-width="2"/>
+      <circle cx="32" cy="32" r="21" fill="none" stroke="#34a853" stroke-width="1.5" stroke-dasharray="4 5"/>
+      <circle cx="32" cy="32" r="8" fill="#4285f4"/>
+      <path d="M8 32h13M43 32h13M32 8v13M32 43v13" stroke="#e8ecf5" stroke-width="1.4" opacity=".55"/>
+    </svg>
+    <div>
+      <h1>کروم‌بوک ابری</h1>
+      <div style="color:var(--dim); font-size:.85rem">Chrome روی سرورهای GitHub Actions</div>
+    </div>
+  </div>
+
+  <p class="sub">
+    یک دسکتاپ کامل لینوکس همراه Google Chrome که تمام منابعش (CPU، رم، دیسک و اینترنت)
+    از رانر GitHub Actions تأمین می‌شود و تصویرش با
+    <span dir="ltr">noVNC + trycloudflare</span> به همین مرورگر می‌آید.
+    برای شروع فقط دکمهٔ زیر را بزنید.
+  </p>
+
+  <a class="primary" id="connect" href="vnc.html?__NOVNC_QUERY__">
+    اتصال به دسکتاپ
+  </a>
+
+  <div class="row">
+    <a class="ghost" href="vnc.html?__NOVNC_QUERY__&amp;view_only=1">حالت تماشا (فقط نمایش)</a>
+    <a class="ghost" href="vnc_lite.html?__NOVNC_QUERY__">نسخهٔ سبک noVNC</a>
+    <a class="ghost" href="home.html">صفحهٔ شروع دسکتاپ</a>
+  </div>
+
+  <ul class="tips">
+    <li>تمام‌صفحه: از نوار کناری noVNC کلید <span dir="ltr">Fullscreen</span> یا <span dir="ltr">F11</span> مرورگر خودتان.</li>
+    <li>چسباندن متن فارسی: در نوار کناری noVNC → <span dir="ltr">Clipboard</span> → Paste (میان‌بُر <span dir="ltr">Ctrl+Alt+Shift+V</span> هم کار می‌کند).</li>
+    <li>تبادل فایل: فایل را با مرورگر داخل دسکتاپ دانلود/آپلود کنید؛ سرعت آپلود به مسیر Cloudflare بستگی دارد.</li>
+    <li>اگر تصویر قطع شد، خودِ noVNC هر ۲ ثانیه تلاش می‌کند دوباره وصل شود.</li>
+  </ul>
+
+  <div class="meta">
+    <div>نشانی عمومی<b>__URL__</b></div>
+    <div>رزولوشن<b>__RES__</b></div>
+    <div>میزبان<b>__HOST__</b></div>
+    <div>پایان سشن (UTC)<b>__END__</b></div>
+  </div>
+
+  <div class="link">
+    <input id="share" readonly value="__URL__" aria-label="نشانی عمومی">
+    <button id="copy" type="button">کپی</button>
+  </div>
+  <p class="note">
+    این نشانی رمز ندارد؛ هر کسی آن را داشته باشد به دسکتاپ راه پیدا می‌کند. مخزن را خصوصی نگه دارید
+    و لینک را جایی منتشر نکنید. با تمام‌شدن رانر (حداکثر ۶ ساعت) این لینک از کار می‌افتد.
+  </p>
+</main>
+<script>
+  document.getElementById('copy').addEventListener('click', async function (e) {
+    var input = document.getElementById('share');
+    try { await navigator.clipboard.writeText(input.value); e.target.textContent = 'کپی شد'; }
+    catch (err) { input.select(); document.execCommand('copy'); e.target.textContent = 'کپی شد'; }
+    setTimeout(function () { e.target.textContent = 'کپی'; }, 1500);
+  });
+</script>
+</body>
+</html>

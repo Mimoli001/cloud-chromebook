@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>کروم‌بوک ابری</title>
+<!-- Chrome opens this page at the start of every session.
+     It is served by the local noVNC/websockify server on http://127.0.0.1:6080/home.html -->
+<style>
+  @font-face{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/fonts/webfonts/Vazirmatn-Regular.woff2) format('woff2');font-weight:400;font-display:swap}
+  @font-face{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/fonts/webfonts/Vazirmatn-Bold.woff2) format('woff2');font-weight:700;font-display:swap}
+  :root{--text:#e8ecf5;--dim:#9fb0cf;--line:#233050;--accent:#4285f4}
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; color:var(--text);
+    font-family:Vazirmatn,"Noto Sans Arabic",Tahoma,sans-serif;
+    background:
+      radial-gradient(900px 520px at 75% 5%, rgba(66,133,244,.35), transparent 60%),
+      radial-gradient(700px 480px at 12% 90%, rgba(52,168,83,.20), transparent 60%),
+      linear-gradient(165deg,#16233f 0%,#0b1020 60%,#070a13 100%);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:26px; padding:42px 18px 56px;
+  }
+  .clock{font-size:.95rem; color:var(--dim)}
+  .clock b{color:var(--text); font-size:1.6rem; font-weight:700; display:block; margin-top:4px}
+  .search{width:100%; max-width:620px}
+  .search form{display:flex; gap:8px}
+  .search input{
+    flex:1 1 auto; min-width:0; padding:15px 18px; border-radius:999px; font-family:inherit; font-size:1rem;
+    background:rgba(18,26,46,.9); color:var(--text); border:1px solid var(--line); outline:none;
+  }
+  .search input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(66,133,244,.18)}
+  .search button{
+    padding:0 22px; border-radius:999px; border:1px solid var(--line); background:#1b2740; color:var(--text);
+    font-family:inherit; font-size:.95rem; cursor:pointer
+  }
+  .search button:hover{border-color:var(--accent)}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr)); gap:18px; width:100%; max-width:760px}
+  .app{display:flex; flex-direction:column; align-items:center; gap:8px; text-decoration:none; color:var(--text); padding:10px 6px; border-radius:16px}
+  .app:hover{background:rgba(255,255,255,.06)}
+  .app span{font-size:.78rem; color:var(--dim); text-align:center}
+  .icon{
+    width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:1.35rem; font-weight:700; color:#fff; box-shadow:0 8px 20px rgba(0,0,0,.35)
+  }
+  .panel{
+    width:100%; max-width:760px; background:rgba(18,26,46,.82); border:1px solid var(--line); border-radius:18px;
+    padding:18px 20px; font-size:.82rem; color:var(--dim)
+  }
+  .panel h2{margin:0 0 12px; font-size:.95rem; color:var(--text); font-weight:700}
+  .kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px 18px}
+  .kv div b{display:block; color:var(--text); font-size:.9rem; margin-top:2px; direction:ltr; text-align:right; word-break:break-all}
+  .hint{margin-top:14px; padding-top:12px; border-top:1px dashed var(--line); line-height:2}
+  code{background:#0d1424; border:1px solid var(--line); border-radius:6px; padding:1px 6px; direction:ltr; display:inline-block}
+</style>
+</head>
+<body>
+  <div class="clock"><b id="now">--:--</b>سشن کروم‌بوک ابری</div>
+
+  <div class="search">
+    <form action="https://www.google.com/search" method="get" target="_top">
+      <input name="q" placeholder="جست‌وجو در وب..." autocomplete="off" aria-label="جست‌وجو">
+      <button type="submit">جست‌وجو</button>
+    </form>
+  </div>
+
+  <div class="grid">
+    <a class="app" href="https://www.google.com" target="_top"><div class="icon" style="background:#4285f4">G</div><span>گوگل</span></a>
+    <a class="app" href="https://mail.google.com" target="_top"><div class="icon" style="background:#db4437">M</div><span>جی‌میل</span></a>
+    <a class="app" href="https://www.youtube.com" target="_top"><div class="icon" style="background:#ff0000">▶</div><span>یوتیوب</span></a>
+    <a class="app" href="https://github.com" target="_top"><div class="icon" style="background:#24292f">GH</div><span>گیت‌هاب</span></a>
+    <a class="app" href="https://web.telegram.org" target="_top"><div class="icon" style="background:#229ed9">✈</div><span>تلگرام</span></a>
+    <a class="app" href="https://web.whatsapp.com" target="_top"><div class="icon" style="background:#25d366">✆</div><span>واتس‌اپ</span></a>
+    <a class="app" href="https://chatgpt.com" target="_top"><div class="icon" style="background:#10a37f">AI</div><span>ChatGPT</span></a>
+    <a class="app" href="https://gemini.google.com" target="_top"><div class="icon" style="background:#1a73e8">✦</div><span>جمینی</span></a>
+    <a class="app" href="https://fa.wikipedia.org" target="_top"><div class="icon" style="background:#54595d">W</div><span>ویکی‌پدیا</span></a>
+    <a class="app" href="https://translate.google.com" target="_top"><div class="icon" style="background:#0f9d58">文</div><span>ترجمه</span></a>
+    <a class="app" href="https://maps.google.com" target="_top"><div class="icon" style="background:#34a853">📍</div><span>نقشه</span></a>
+    <a class="app" href="https://x.com" target="_top"><div class="icon" style="background:#0f1419">X</div><span>ایکس</span></a>
+  </div>
+
+  <div class="panel">
+    <h2>دربارهٔ این دستگاه</h2>
+    <div class="kv">
+      <div>نشانی عمومی<b id="url">__URL__</b></div>
+      <div>صفحه‌نمایش<b>__RES__</b></div>
+      <div>میزبان<b>__HOST__</b> (<span dir="ltr">__ARCH__</span>)</div>
+      <div>پردازنده<b>__CORES__ vCPU</b></div>
+      <div>حافظه<b>__RAM__</b></div>
+      <div>دیسک<b>__DISK__</b></div>
+      <div>شروع سشن<b>__START__</b></div>
+      <div>پایان سشن<b>__END__</b></div>
+    </div>
+    <div class="hint">
+      همهٔ این منابع از رانر GitHub Actions می‌آید و با پایان یافتن سشن (حداکثر ۶ ساعت) از بین می‌رود؛
+      یعنی هر چیزی که داخل دسکتاپ نصب یا ذخیره کنید موقتی است.
+      برای نصب برنامه در همین سشن، ترمینال نوار پایین را باز کنید و مثلاً
+      <code>sudo apt-get install -y gimp</code> یا <code>pip install requests</code> را بزنید.
+      ویدیوی سنگین (یوتیوب ۱۰۸۰p) روی دو هسته روان نیست؛ کیفیت را پایین بیاورید.
+    </div>
+  </div>
+
+<script>
+  function tick() {
+    var d = new Date();
+    document.getElementById('now').textContent =
+      String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  tick(); setInterval(tick, 15000);
+</script>
+</body>
+</html>

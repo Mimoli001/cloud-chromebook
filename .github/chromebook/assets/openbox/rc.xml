@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal openbox config for the cloud Chromebook.
+     Openbox fills every section that is missing here with its own defaults.
+     Chrome gets no title bar and is maximized, so the desktop looks like a
+     browser with a shelf, not like a traditional X11 desktop. -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+
+  <theme>
+    <name>Clearlooks</name>
+    <titleLayout>NLIMC</titleLayout>
+    <keepBorder>yes</keepBorder>
+    <animateIconify>no</animateIconify>
+    <font place="ActiveWindow">
+      <name>DejaVu Sans</name>
+      <size>9</size>
+      <weight>bold</weight>
+    </font>
+    <font place="InactiveWindow">
+      <name>DejaVu Sans</name>
+      <size>9</size>
+      <weight>normal</weight>
+    </font>
+  </theme>
+
+  <desktops>
+    <number>1</number>
+    <names><name>chromebook</name></names>
+  </desktops>
+
+  <resize>
+    <drawContents>no</drawContents>
+  </resize>
+
+  <focus>
+    <focusNew>yes</focusNew>
+    <followMouse>no</followMouse>
+    <underMouse>no</underMouse>
+    <raiseOnFocus>no</raiseOnFocus>
+  </focus>
+
+  <placement>
+    <policy>Smart</policy>
+    <center>yes</center>
+  </placement>
+
+  <applications>
+    <application class="google-chrome">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <layer>normal</layer>
+    </application>
+    <application class="Google-chrome">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <layer>normal</layer>
+    </application>
+    <application name="Google-chrome">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <layer>normal</layer>
+    </application>
+    <application class="Pcmanfm">
+      <decor>yes</decor>
+      <maximized>no</maximized>
+      <position>
+        <x>80</x><y>60</y>
+      </position>
+    </application>
+    <application class="XTerm">
+      <decor>yes</decor>
+      <maximized>no</maximized>
+      <position>
+        <x>60</x><y>60</y>
+      </position>
+    </application>
+  </applications>
+</openbox_config>

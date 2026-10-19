@@ -1,0 +1,119 @@
+# Cloud "Chromebook": a browser desktop that runs entirely on a GitHub Actions runner.
+#
+# Run it from the Actions tab ("Run workflow") and open the trycloudflare URL that
+# shows up in the job summary / log (and optionally in Telegram) in your own browser.
+#
+# Optional repository settings (Settings > Secrets and variables > Actions):
+#   Secrets   TG_BOT_TOKEN, TG_CHAT_ID : the URL is also sent to Telegram
+#             CF_TUNNEL_TOKEN          : use your own Cloudflare named tunnel instead of trycloudflare
+#   Variables CF_HOSTNAME              : fixed hostname of that named tunnel
+name: chromebook
+
+on:
+  workflow_dispatch:
+    inputs:
+      resolution:
+        description: "Screen size (smaller = smoother over the tunnel, e.g. 1366x768)"
+        required: false
+        default: "1600x900"
+      start_url:
+        description: "First page Chrome opens (empty = the built-in start page)"
+        required: false
+        default: ""
+      ui_language:
+        description: "Chrome UI language (fa = Persian, en-US = English)"
+        required: false
+        default: "fa"
+      session_minutes:
+        description: "How long the desktop stays alive, in minutes (1-350)"
+        required: false
+        default: "300"
+      chain:
+        description: "Start a fresh run automatically when this session is over"
+        type: boolean
+        required: false
+        default: false
+
+# One desktop at a time; a chained run waits until the previous session is gone.
+concurrency:
+  group: chromebook
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write      # only used by the last step when `chain: true`
+
+jobs:
+  desktop:
+    name: Cloud Chromebook
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      RESOLUTION: ${{ inputs.resolution }}
+      START_URL: ${{ inputs.start_url }}
+      CHROME_LANG: ${{ inputs.ui_language }}
+      CHAIN: ${{ inputs.chain }}
+      GH_TOKEN: ${{ github.token }}
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+      CF_HOSTNAME: ${{ vars.CF_HOSTNAME }}
+    steps:
+      - name: Checkout (scripts + web assets)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+
+      - name: Preflight (job clock, limits, disk space)
+        env:
+          RAW_MINUTES: ${{ inputs.session_minutes }}
+        run: |
+          minutes="$RAW_MINUTES"
+          case "$minutes" in ''|*[!0-9]*) minutes=300 ;; esac
+          if [ "$minutes" -lt 1 ]; then minutes=1; fi
+          if [ "$minutes" -gt 350 ]; then minutes=350; fi     # the job itself is capped at 6 h
+          {
+            echo "SESSION_SECONDS=$(( minutes * 60 ))"
+            echo "SESSION_MINUTES=$minutes"
+            echo "JOB_START=$(date +%s)"
+            echo "SESSION_START=$(date -u '+%Y-%m-%d %H:%M UTC')"
+          } >> "$GITHUB_ENV"
+          avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          echo "free disk on /: ${avail}G"
+          if [ "$avail" -lt 20 ]; then
+            echo "freeing space this desktop never needs"
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          fi
+          echo "resolution=${RESOLUTION:-1600x900} | session=${minutes} min | chain=${CHAIN:-false}"
+
+      - name: Install the desktop (packages, Chrome, cloudflared, noVNC)
+        run: bash .github/chromebook/chromebook.sh install
+
+      - name: Boot the desktop and open the public tunnel
+        run: bash .github/chromebook/chromebook.sh boot
+
+      # `exec` makes the script the step's own process, so a Cancel reaches it directly.
+      - name: Session (keep alive + restart crashed services)
+        id: hold
+        run: exec bash .github/chromebook/chromebook.sh hold
+
+      - name: Final status
+        if: always()
+        run: |
+          bash .github/chromebook/chromebook.sh status || true
+          {
+            echo
+            echo "**Session finished.** Everything lived inside the runner, so the desktop is gone;"
+            echo "run the workflow again for a fresh one (new URL)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start a fresh session (chain)
+        if: steps.hold.outputs.chain == 'true'
+        run: |
+          gh workflow run chromebook.yml -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f resolution="$RESOLUTION" \
+            -f start_url="$START_URL" \
+            -f ui_language="$CHROME_LANG" \
+            -f session_minutes="$SESSION_MINUTES" \
+            -f chain=true

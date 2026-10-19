@@ -1,0 +1,90 @@
+# =============================================================================
+#  Cloud Chromebook "shelf" (tint2)
+#  __HOME__ is replaced with the runner's home directory at startup.
+# =============================================================================
+
+# -----------------------------------
+# BACKGROUNDS (id 0 = transparent)
+# -----------------------------------
+rounded = 0
+border_width = 0
+background_color = #0b101c 92
+border_color = #223050 100
+
+# ID 2 - active task / pressed launcher
+rounded = 6
+border_width = 1
+background_color = #26364f 95
+border_color = #4285f4 90
+
+# ID 3 - urgent task
+rounded = 6
+border_width = 1
+background_color = #4a2a2a 95
+border_color = #ea4335 90
+
+# -----------------------------------
+# PANEL
+# -----------------------------------
+panel_monitor = all
+panel_position = bottom center horizontal
+panel_items = LTSC
+panel_size = 100% 46
+panel_margin = 0 0
+panel_padding = 8 5 8 5
+panel_background_id = 1
+panel_layer = top
+panel_dock = 0
+panel_strut_policy = follow_size
+wm_menu = 0
+
+# -----------------------------------
+# LAUNCHER
+# -----------------------------------
+launcher_padding = 4 4 4 4
+launcher_background_id = 0
+launcher_icon_background_id = 0
+launcher_icon_size = 26
+launcher_icon_asb = 100 0 0
+launcher_icon_theme_override = 0
+launcher_tooltip = 1
+launcher_item_app = __HOME__/.local/share/applications/google-chrome.desktop
+launcher_item_app = __HOME__/.local/share/applications/cloud-terminal.desktop
+launcher_item_app = __HOME__/.local/share/applications/cloud-files.desktop
+
+# -----------------------------------
+# TASKBAR
+# -----------------------------------
+taskbar_mode = single_desktop
+taskbar_padding = 4 4 4 4
+taskbar_background_id = 0
+taskbar_distribute_size = 0
+taskbar_name = 0
+task_active_background_id = 2
+task_urgent_background_id = 3
+task_icon = 1
+task_icon_asb = 100 0 0
+task_icon_size = 24
+task_text = 1
+task_maximum_size = 220 32
+task_font = DejaVu Sans 9
+task_font_color = #cdd8ec 100
+task_active_font_color = #ffffff 100
+task_background_id = 0
+
+# -----------------------------------
+# SYSTRAY + CLOCK
+# -----------------------------------
+systray_padding = 6 4 6 4
+systray_background_id = 0
+systray_sort = ascending
+systray_icon_size = 20
+systray_icon_asb = 100 0 0
+systray_monitor = 1
+
+time1_format = %H:%M
+time1_font = DejaVu Sans 9
+clock_font_color = #e8ecf5 100
+clock_padding = 6 0
+clock_background_id = 0
+clock_tooltip = %A %d %B %Y
