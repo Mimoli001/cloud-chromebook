@@ -110,6 +110,10 @@ session_end() {   # the same absolute deadline that hold() enforces (counted fro
     echo "—"
   fi
 }
+session_end_epoch() {   # unix timestamp of that deadline (empty when the session has no limit)
+  local s="${SESSION_SECONDS:-0}"
+  if [ "$s" -gt 0 ] 2>/dev/null; then echo "$(( ${JOB_START:-$(date +%s)} + s ))"; fi
+}
 public_url() { cat "$URL_FILE" 2>/dev/null || true; }
 save_state() {   # boot/hold/status are separate processes: remember what boot started
   {
@@ -148,6 +152,11 @@ os_name() {   # "Ubuntu 26.04 LTS · image 2026xxxx" (the runner exposes ImageVe
   pretty="$( . /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-Linux}" )"
   if [ -n "${ImageVersion:-}" ]; then printf '%s · image %s' "$pretty" "$ImageVersion"; else printf '%s' "$pretty"; fi
 }
+os_pretty() {   # just "Ubuntu 24.04.5 LTS"
+  . /etc/os-release 2>/dev/null || true
+  printf '%s' "${PRETTY_NAME:-Linux}"
+}
+image_version() { printf '%s' "${ImageVersion:-—}"; }
 ubuntu_version_num() {   # 24.04 -> 2404, 26.04 -> 2604 (0 when it is not Ubuntu)
   local v
   v="$( . /etc/os-release 2>/dev/null; printf '%s' "${VERSION_ID:-0}" )"
@@ -563,6 +572,23 @@ finish_gnome_start() {
   log "GNOME Shell is up"
 }
 
+page_shot() {   # headless render of the landing page (no display needed)
+  local f="$RUNTIME/page-shot.png" ud
+  if [ -z "$CHROME_BIN" ]; then resolve_chrome || { warn "Chrome not found for the page screenshot"; return 1; }; fi
+  ud="$(mktemp -d)"
+  "$CHROME_BIN" --headless=new --disable-gpu --no-sandbox --hide-scrollbars --disable-dev-shm-usage \
+    --user-data-dir="$ud" --window-size=1280,920 --force-device-scale-factor=1 \
+    --virtual-time-budget=5000 --screenshot="$f" "file://$WEBROOT/index.html" >/dev/null 2>&1 || true
+  rm -rf "$ud"
+  [ -s "$f" ] || { warn "could not render the landing page"; return 1; }
+  log "page screenshot: $f ($(du -h "$f" 2>/dev/null | cut -f1))"
+  if [ "${SHOT_B64:-0}" = "1" ]; then
+    echo "-----BEGIN PAGE-SHOT-----"
+    base64 "$f" | fold -w 100
+    echo "-----END PAGE-SHOT-----"
+  fi
+}
+
 shot() {   # screenshot of the desktop; SHOT_B64=1 also prints it as base64 for the log
   have import || { warn "ImageMagick (import) is not installed"; return 1; }
   local f="$RUNTIME/last-shot.png"
@@ -573,6 +599,7 @@ shot() {   # screenshot of the desktop; SHOT_B64=1 also prints it as base64 for 
     base64 "$f" | fold -w 100
     echo "-----END SCREENSHOT-----"
   fi
+  if [ "${SHOT_PAGE:-0}" = "1" ]; then page_shot; fi
 }
 
 write_desktop_entries() {
@@ -742,9 +769,14 @@ render_page() {   # render_page <template> <destination>
       -e "s|__RES__|$(esc "$RESOLUTION")|g" \
       -e "s|__START__|$(esc "$SESSION_START")|g" \
       -e "s|__END__|$(esc "$(session_end)")|g" \
+      -e "s|__END_EPOCH__|$(session_end_epoch)|g" \
       -e "s|__HOST__|$(esc "$(hostname)")|g" \
       -e "s|__OS__|$(esc "$(os_name)")|g" \
+      -e "s|__OS_PRETTY__|$(esc "$(os_pretty)")|g" \
+      -e "s|__IMAGE__|$(esc "$(image_version)")|g" \
       -e "s|__CHROME__|$(esc "$(chrome_version) (${CHROME_CHANNEL})")|g" \
+      -e "s|__CHROME_VERSION__|$(esc "$(chrome_version)")|g" \
+      -e "s|__CHANNEL__|$(esc "$CHROME_CHANNEL")|g" \
       -e "s|__CORES__|$(nproc)|g" \
       -e "s|__RAM__|$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 )) MB|g" \
       -e "s|__DISK__|$(df -h --output=size / | tail -1 | tr -d ' ')|g" \

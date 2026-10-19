@@ -136,6 +136,7 @@ jobs:
         if: ${{ inputs.shot }}
         env:
           SHOT_B64: "1"
+          SHOT_PAGE: "1"
         run: |
           sleep 15
           bash .github/chromebook/chromebook.sh shot || true
