@@ -719,18 +719,44 @@ auth_line() {   # one-liner for logs/status: states the truth, never the passwor
 
 start_vnc() {
   is_up x11vnc && return 0
+  # NOTE: do not add -maxauth here: x11vnc 0.9.16 (Ubuntu 24.04) rejects it and
+  # exits immediately, which used to leave the whole session without a VNC server.
   local args=(-display "$DISPLAY" -rfbport "$VNC_PORT" -localhost -forever -shared -noxdamage -xkb
               -repeat -capslock -o "$LOGS/x11vnc-daemon.log" -quiet)
   if vnc_auth_on; then
-    args+=(-rfbauth "$VNC_PASSFILE" -maxauth 6)
+    args+=(-rfbauth "$VNC_PASSFILE")
     log "starting x11vnc on 127.0.0.1:$VNC_PORT (password required)"
   else
     args+=(-nopw)
     log "starting x11vnc on 127.0.0.1:$VNC_PORT (no password)"
   fi
-  spawn x11vnc x11vnc "${args[@]}"
-  sleep 1
-  is_up x11vnc && log "x11vnc is up" || { tail -n 5 "$LOGS/x11vnc.log" >&2 || true; warn "x11vnc failed"; }
+  spawn x11vnc x11vnc "${args[@]}" || true
+  local i
+  for i in $(seq 10); do
+    is_up x11vnc && break
+    sleep 1
+  done
+  if ! is_up x11vnc; then
+    tail -n 8 "$LOGS/x11vnc-daemon.log" >&2 2>/dev/null || true
+    tail -n 5 "$LOGS/x11vnc.log" >&2 2>/dev/null || true
+    warn "x11vnc failed to start"
+    return 1
+  fi
+  log "x11vnc is up"
+}
+
+check_vnc_auth() {   # fail closed: never expose a desktop that should be password protected
+  vnc_auth_on || return 0
+  local types="" i
+  for i in $(seq 5); do
+    types="$(rfb_auth_types)"
+    case "$types" in *error*) sleep 2 ;; *) break ;; esac
+  done
+  case ",$types," in
+    *,1,*) die "x11vnc is offering password-less access (RFB security types: $types) - refusing to go on" ;;
+    *,2,*) log "verified: x11vnc asks for the password (RFB security types: $types)" ;;
+    *)     warn "could not verify the VNC password state: $types" ;;
+  esac
 }
 
 start_web() {
@@ -952,7 +978,8 @@ boot() {
   fi
   DESKTOP_ACTIVE="$mode"
   prepare_vnc_password || true
-  start_vnc
+  start_vnc || die "x11vnc did not start (VNC_PASSWORD set: $(vnc_auth_on && echo yes || echo no))"
+  check_vnc_auth
   start_web
   start_tunnel || true
   render_pages
@@ -974,7 +1001,7 @@ healthcheck() {
     if [ "${DESKTOP_ACTIVE:-classic}" = "classic" ]; then
       start_wm; start_compositor; start_shelf
     fi
-    start_vnc
+    start_vnc || true
     start_web || true
     start_tunnel || true
     render_pages
@@ -1006,7 +1033,7 @@ healthcheck() {
     is_up picom     || { warn "restarting the compositor"; start_compositor; }
     is_up tint2     || { warn "restarting the tint2 shelf"; start_shelf; }
   fi
-  is_up x11vnc    || { warn "restarting x11vnc"; start_vnc; }
+  is_up x11vnc    || { warn "restarting x11vnc"; start_vnc || warn "x11vnc could not be restarted"; }
   is_up websockify || { warn "restarting noVNC"; start_web || true; }
   if ! is_up cloudflared; then
     warn "cloudflared died: restarting (the public URL will change)"
