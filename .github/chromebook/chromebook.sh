@@ -160,7 +160,7 @@ install() {
     xvfb x11vnc novnc websockify openbox tint2 xterm pcmanfm xdotool wmctrl
     x11-utils dbus-x11 feh fontconfig fonts-dejavu-core fonts-noto-core
     fonts-noto-color-emoji adwaita-icon-theme hicolor-icon-theme unzip curl ca-certificates
-    fonts-ubuntu yaru-theme-gtk yaru-theme-icon picom imagemagick
+    fonts-ubuntu yaru-theme-gtk yaru-theme-icon picom imagemagick mesa-utils
   )
   log "installing desktop packages with apt (first boot takes ~2-4 minutes)"
   $SUDO apt-get update -qq
@@ -443,8 +443,8 @@ start_compositor() {   # picom: real transparency for the shelf + soft window sh
 }
 
 start_gnome() {   # the real Ubuntu session: GNOME Shell + Yaru + the Ubuntu dock
-  is_up gnome-session && return 0
-  have gnome-session && have gnome-shell || return 1
+  gnome_alive && return 0
+  have gnome-shell || return 1
   # a session bus is required; reuse the one boot() started, unless it is dead
   if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] \
      && ! dbus-send --session --print-reply --dest=org.freedesktop.DBus / \
@@ -464,20 +464,53 @@ start_gnome() {   # the real Ubuntu session: GNOME Shell + Yaru + the Ubuntu doc
   export GNOME_SHELL_SESSION_MODE=ubuntu
   export XDG_DATA_DIRS="/usr/share/ubuntu:/usr/local/share:/usr/share:/var/lib/snapd/desktop"
   export LIBGL_ALWAYS_SOFTWARE=1        # no GPU on a runner: GNOME renders through llvmpipe
-  log "starting the Ubuntu (GNOME) session"
-  spawn gnome-session gnome-session --session=ubuntu
-  local i
-  for i in $(seq 90); do
-    pgrep -x gnome-shell >/dev/null && break
-    is_up gnome-session || break
+  if have glxinfo; then
+    log "graphics: $(LIBGL_ALWAYS_SOFTWARE=1 glxinfo -B 2>/dev/null | tr '\n' ' ' | cut -c1-180)"
+  fi
+  log "shell version: $(gnome-shell --version 2>/dev/null | head -1)"
+  log "sessions: $(ls /usr/share/gnome-session/sessions 2>/dev/null | tr '\n' ' ')"
+  log "x11 flag: $(gnome-shell --help 2>/dev/null | grep -c -- '--x11') wayland flag: $(gnome-shell --help 2>/dev/null | grep -c -- '--wayland')"
+
+  # First choice: the complete Ubuntu session (settings daemon, dock, everything).
+  if have gnome-session; then
+    log "starting the Ubuntu (GNOME) session"
+    spawn gnome-session gnome-session --session=ubuntu
+    if wait_for_shell 60; then
+      finish_gnome_start
+      return 0
+    fi
+    warn "gnome-session did not bring up the shell; trying the shell on its own"
+    tail -n 15 "$LOGS/gnome-session.log" >&2 || true
+    stop_svc gnome-session
+    sleep 2
+  fi
+
+  # Second choice: GNOME Shell itself (still the Ubuntu top bar + dock + Yaru).
+  log "starting GNOME Shell directly (gnome-shell --x11)"
+  spawn gnome-shell gnome-shell --x11
+  if wait_for_shell 60; then
+    finish_gnome_start
+    return 0
+  fi
+  warn "GNOME Shell could not start (see $LOGS/gnome-shell.log)"
+  tail -n 15 "$LOGS/gnome-shell.log" >&2 || true
+  stop_svc gnome-shell
+  return 1
+}
+
+gnome_alive() { pgrep -x gnome-shell >/dev/null 2>&1; }
+
+wait_for_shell() {   # wait_for_shell <seconds>
+  local i n="${1:-60}"
+  for i in $(seq "$n"); do
+    gnome_alive && return 0
     sleep 1
   done
-  if ! pgrep -x gnome-shell >/dev/null; then
-    warn "GNOME Shell did not start (see $LOGS/gnome-session.log)"
-    stop_svc gnome-session
-    return 1
-  fi
-  sleep 2
+  return 1
+}
+
+finish_gnome_start() {
+  sleep 3
   gsettings set org.gnome.desktop.interface enable-animations false >/dev/null 2>&1 || true
   log "GNOME Shell is up"
 }
@@ -744,7 +777,7 @@ boot() {
 healthcheck() {
   if ! is_up xvfb; then
     warn "Xvfb died: rebuilding the desktop"
-    stop_svc xvfb; stop_svc gnome-session; stop_svc openbox; stop_svc tint2
+    stop_svc xvfb; stop_svc gnome-session; stop_svc gnome-shell; stop_svc openbox; stop_svc tint2
     stop_svc picom; stop_svc x11vnc
     start_x; set_wallpaper; write_desktop_entries
     if [ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ] && ! start_gnome; then
@@ -762,9 +795,9 @@ healthcheck() {
     return 0
   fi
   if [ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ]; then
-    if ! is_up gnome-session || ! pgrep -x gnome-shell >/dev/null; then
+    if ! gnome_alive; then
       warn "the GNOME session died: restarting it"
-      stop_svc gnome-session
+      stop_svc gnome-session; stop_svc gnome-shell
       if ! start_gnome; then
         warn "GNOME did not come back: switching to the classic desktop"
         DESKTOP_ACTIVE=classic
