@@ -12,6 +12,26 @@ name: chromebook
 on:
   workflow_dispatch:
     inputs:
+      runner_image:
+        description: "Runner OS image (ubuntu-26.04 = newest, ubuntu-latest = 24.04)"
+        type: choice
+        required: false
+        default: ubuntu-26.04
+        options:
+          - ubuntu-26.04
+          - ubuntu-latest
+          - ubuntu-24.04
+          - ubuntu-22.04
+      chrome_channel:
+        description: "Chrome release channel (stable < beta < dev/unstable < canary)"
+        type: choice
+        required: false
+        default: stable
+        options:
+          - stable
+          - beta
+          - unstable
+          - canary
       resolution:
         description: "Screen size (smaller = smoother over the tunnel, e.g. 1366x768)"
         required: false
@@ -46,11 +66,14 @@ permissions:
 jobs:
   desktop:
     name: Cloud Chromebook
-    runs-on: ubuntu-latest
+    # ubuntu-latest is Ubuntu 24.04; ubuntu-26.04 is the newest image GitHub offers.
+    runs-on: ${{ inputs.runner_image || 'ubuntu-24.04' }}
     timeout-minutes: 360
     env:
       RESOLUTION: ${{ inputs.resolution }}
       START_URL: ${{ inputs.start_url }}
+      RUNNER_IMAGE: ${{ inputs.runner_image || 'ubuntu-24.04' }}
+      CHROME_CHANNEL: ${{ inputs.chrome_channel || 'stable' }}
       CHROME_LANG: ${{ inputs.ui_language }}
       CHAIN: ${{ inputs.chain }}
       GH_TOKEN: ${{ github.token }}
@@ -81,11 +104,12 @@ jobs:
           } >> "$GITHUB_ENV"
           avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
           echo "free disk on /: ${avail}G"
+          echo "runner image: ${ImageVersion:-unknown} on $(uname -m)"
           if [ "$avail" -lt 20 ]; then
             echo "freeing space this desktop never needs"
             sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           fi
-          echo "resolution=${RESOLUTION:-1600x900} | session=${minutes} min | chain=${CHAIN:-false}"
+          echo "resolution=${RESOLUTION:-1600x900} | chrome=${CHROME_CHANNEL:-stable} | session=${minutes} min | chain=${CHAIN:-false}"
 
       - name: Install the desktop (packages, Chrome, cloudflared, noVNC)
         run: bash .github/chromebook/chromebook.sh install
@@ -112,6 +136,8 @@ jobs:
         if: steps.hold.outputs.chain == 'true'
         run: |
           gh workflow run chromebook.yml -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f runner_image="$RUNNER_IMAGE" \
+            -f chrome_channel="$CHROME_CHANNEL" \
             -f resolution="$RESOLUTION" \
             -f start_url="$START_URL" \
             -f ui_language="$CHROME_LANG" \

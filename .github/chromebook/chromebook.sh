@@ -48,6 +48,7 @@ SESSION_SECONDS="${SESSION_SECONDS:-0}"      # 0 -> unknown
 SESSION_START="${SESSION_START:-$(date -u '+%Y-%m-%d %H:%M UTC')}"
 CHROME_BIN=""
 CHROME_FLAGS=()
+CHROME_CHANNEL="${CHROME_CHANNEL:-stable}"  # stable | beta | dev (unstable) | canary
 CHROME_LANG="${CHROME_LANG:-fa}"            # Chrome UI language (empty = keep the default)
 CHROME_PROFILE="$HOME/.config/google-chrome-cloud"
 APPDIR="$HOME/.local/share/applications"
@@ -93,6 +94,33 @@ session_end() {
   if [ "$s" -gt 0 ] 2>/dev/null; then date -u -d "@$(( $(date +%s) + s ))" '+%H:%M UTC'; else echo "—"; fi
 }
 public_url() { cat "$URL_FILE" 2>/dev/null || true; }
+os_name() {   # "Ubuntu 26.04 LTS · image 2026xxxx" (the runner exposes ImageVersion)
+  local pretty
+  pretty="$( . /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-Linux}" )"
+  if [ -n "${ImageVersion:-}" ]; then printf '%s · image %s' "$pretty" "$ImageVersion"; else printf '%s' "$pretty"; fi
+}
+chrome_version() {
+  [ -n "$CHROME_BIN" ] || return 0
+  "$CHROME_BIN" --version 2>/dev/null \
+    | sed -e 's/^Google Chrome //' -e 's/^Chromium //' -e 's/ \(beta\|dev\|unstable\|canary\)$//' || true
+}
+chrome_package() {   # the apt/binary name of the selected release channel
+  case "${CHROME_CHANNEL:-stable}" in
+    stable)       echo google-chrome-stable ;;
+    beta)         echo google-chrome-beta ;;
+    dev|unstable) echo google-chrome-unstable ;;
+    canary)       echo google-chrome-canary ;;
+    *)            echo google-chrome-stable ;;
+  esac
+}
+resolve_chrome() {   # pick the channel binary, otherwise whatever Chrome/Chromium is installed
+  local pkg c; pkg="$(chrome_package)"
+  for c in "$pkg" google-chrome google-chrome-stable google-chrome-beta \
+           google-chrome-unstable google-chrome-canary chromium chromium-browser; do
+    if have "$c"; then CHROME_BIN="$(command -v "$c")"; return 0; fi
+  done
+  CHROME_BIN=""; return 1
+}
 
 # ------------------------------------------------------------------ install
 install() {
@@ -105,15 +133,17 @@ install() {
   $SUDO apt-get update -qq
   DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq --no-install-recommends "${pkgs[@]}"
 
-  # Ubuntu ships "chromium" as a snap stub, which cannot work on a runner: use the real deb.
-  if ! have google-chrome && ! have google-chrome-stable; then
-    log "downloading Google Chrome (stable, amd64)"
-    curl -fsSL -o "$WORK/chrome.deb" \
-      https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+  # Ubuntu ships "chromium" as a snap stub, which cannot work on a runner: use Google's own deb.
+  # The channel decides how new the browser is: stable < beta < dev(unstable) < canary.
+  local pkg; pkg="$(chrome_package)"
+  if ! have "$pkg"; then
+    log "downloading Google Chrome (${CHROME_CHANNEL} channel -> ${pkg})"
+    curl -fsSL -o "$WORK/chrome.deb" "https://dl.google.com/linux/direct/${pkg}_current_amd64.deb" \
+      || die "could not download ${pkg} (is the channel name right?)"
     DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq "$WORK/chrome.deb"
   fi
-  have google-chrome && log "chrome: $(google-chrome --version 2>/dev/null || echo ok)" \
-                    || die "Google Chrome was not installed"
+  resolve_chrome || die "Google Chrome was not installed"
+  log "browser: $("$CHROME_BIN" --version 2>/dev/null)  ($(os_name))"
 
   if ! have cloudflared; then
     log "downloading cloudflared"
@@ -365,8 +395,7 @@ chrome_launch() {   # chrome_launch <url> [extra flags...]
 
 start_chrome() {
   chrome_alive && return 0
-  [ -n "$CHROME_BIN" ] || CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || true)"
-  [ -n "$CHROME_BIN" ] || { warn "the Chrome binary was not found"; return 1; }
+  [ -n "$CHROME_BIN" ] || resolve_chrome || { warn "the Chrome binary was not found"; return 1; }
   local url="${START_URL:-$LOCAL_URL/home.html}"
   chrome_flags
   mkdir -p "$CHROME_PROFILE"
@@ -409,6 +438,8 @@ render_page() {   # render_page <template> <destination>
       -e "s|__START__|$(esc "$SESSION_START")|g" \
       -e "s|__END__|$(esc "$(session_end)")|g" \
       -e "s|__HOST__|$(esc "$(hostname)")|g" \
+      -e "s|__OS__|$(esc "$(os_name)")|g" \
+      -e "s|__CHROME__|$(esc "$(chrome_version) (${CHROME_CHANNEL})")|g" \
       -e "s|__CORES__|$(nproc)|g" \
       -e "s|__RAM__|$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 )) MB|g" \
       -e "s|__DISK__|$(df -h --output=size / | tail -1 | tr -d ' ')|g" \
@@ -428,7 +459,8 @@ announce() {
   log "──────────────────────────────────────────────────────────────"
   log "Cloud Chromebook is ready"
   log "open this in your browser: ${url:-<not ready, check the trycloudflare step>}"
-  log "screen ${RESOLUTION} | cores $(nproc) | session ends ~${end}"
+  log "screen ${RESOLUTION} | Chrome $(chrome_version) (${CHROME_CHANNEL}) | $(os_name)"
+  log "session ends ~${end}"
   log "──────────────────────────────────────────────────────────────"
   if [ -n "$url" ]; then
     echo "::notice title=Cloud Chromebook (open in your browser)::$url"
@@ -440,6 +472,8 @@ announce() {
       echo "| | |"
       echo "|---|---|"
       echo "| Screen | ${RESOLUTION} |"
+      echo "| System | $(os_name) |"
+      echo "| Browser | Google Chrome $(chrome_version) · ${CHROME_CHANNEL} channel |"
       echo "| Runner | \`$(hostname)\` · $(nproc) vCPU · $(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 )) MB RAM |"
       echo "| Session ends | ${end} |"
       echo
@@ -452,8 +486,7 @@ announce() {
 
 # ------------------------------------------------------------------ boot / hold
 boot() {
-  CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || true)"
-  [ -n "$CHROME_BIN" ] || die "Chrome not found: run 'chromebook.sh install' first"
+  resolve_chrome || die "Chrome not found: run 'chromebook.sh install' first"
   have Xvfb && have x11vnc && have websockify || die "missing packages: run 'chromebook.sh install' first"
 
   log "session start ${SESSION_START} (${RESOLUTION}, budget ${SESSION_SECONDS}s)"
@@ -542,6 +575,8 @@ status() {
   res="$(xdpyinfo -display "$DISPLAY" 2>/dev/null | awk '/dimensions:/{print $2; exit}')"
   printf 'url=%s\n' "$url"
   printf 'display=%s res=%s\n' "$DISPLAY" "${res:-$RESOLUTION}"
+  printf 'system=%s\n' "$(os_name)"
+  printf 'browser=%s\n' "$([ -n "$CHROME_BIN" ] || resolve_chrome; chrome_version) (${CHROME_CHANNEL} channel)"
   local s
   for s in xvfb openbox tint2 x11vnc websockify cloudflared; do
     printf '%-12s %s\n' "$s" "$(is_up "$s" && echo up || echo DOWN)"
