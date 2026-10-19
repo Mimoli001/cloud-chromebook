@@ -32,6 +32,14 @@ on:
           - beta
           - unstable
           - canary
+      desktop:
+        description: "Desktop: ubuntu = real GNOME session (looks like Ubuntu), classic = light shelf"
+        type: choice
+        required: false
+        default: ubuntu
+        options:
+          - ubuntu
+          - classic
       resolution:
         description: "Screen size (smaller = smoother over the tunnel, e.g. 1366x768)"
         required: false
@@ -50,6 +58,11 @@ on:
         default: "300"
       chain:
         description: "Start a fresh run automatically when this session is over"
+        type: boolean
+        required: false
+        default: false
+      shot:
+        description: "Write a screenshot of the desktop into the log (to check how it looks)"
         type: boolean
         required: false
         default: false
@@ -74,6 +87,7 @@ jobs:
       START_URL: ${{ inputs.start_url }}
       RUNNER_IMAGE: ${{ inputs.runner_image || 'ubuntu-24.04' }}
       CHROME_CHANNEL: ${{ inputs.chrome_channel || 'stable' }}
+      DESKTOP_MODE: ${{ inputs.desktop || 'ubuntu' }}
       CHROME_LANG: ${{ inputs.ui_language }}
       CHAIN: ${{ inputs.chain }}
       GH_TOKEN: ${{ github.token }}
@@ -109,13 +123,22 @@ jobs:
             echo "freeing space this desktop never needs"
             sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           fi
-          echo "resolution=${RESOLUTION:-1600x900} | chrome=${CHROME_CHANNEL:-stable} | session=${minutes} min | chain=${CHAIN:-false}"
+          echo "resolution=${RESOLUTION:-1600x900} | chrome=${CHROME_CHANNEL:-stable} | desktop=${DESKTOP_MODE:-ubuntu} | session=${minutes} min | chain=${CHAIN:-false}"
 
       - name: Install the desktop (packages, Chrome, cloudflared, noVNC)
         run: bash .github/chromebook/chromebook.sh install
 
       - name: Boot the desktop and open the public tunnel
         run: bash .github/chromebook/chromebook.sh boot
+
+      - name: Screenshot of the desktop (optional)
+        if: ${{ inputs.shot }}
+        env:
+          SHOT_B64: "1"
+        run: |
+          sleep 15
+          bash .github/chromebook/chromebook.sh shot || true
+          bash .github/chromebook/chromebook.sh status || true
 
       # `exec` makes the script the step's own process, so a Cancel reaches it directly.
       - name: Session (keep alive + restart crashed services)
@@ -138,6 +161,7 @@ jobs:
           gh workflow run chromebook.yml -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
             -f runner_image="$RUNNER_IMAGE" \
             -f chrome_channel="$CHROME_CHANNEL" \
+            -f desktop="$DESKTOP_MODE" \
             -f resolution="$RESOLUTION" \
             -f start_url="$START_URL" \
             -f ui_language="$CHROME_LANG" \

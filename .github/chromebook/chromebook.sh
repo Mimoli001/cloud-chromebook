@@ -54,6 +54,19 @@ CHROME_PROFILE="$HOME/.config/google-chrome-cloud"
 APPDIR="$HOME/.local/share/applications"
 TINT2_RC="$RUNTIME/tint2rc"
 
+# Which desktop to run:
+#   ubuntu  = the real Ubuntu session (GNOME Shell + Yaru + Ubuntu dock) -> looks
+#             exactly like a fresh Ubuntu desktop, but heavier on CPU
+#   classic = the light Chromebook-style openbox + floating shelf (fastest)
+#   auto    = use GNOME when it is installed, otherwise the classic desktop
+DESKTOP_MODE="${DESKTOP_MODE:-auto}"
+DESKTOP_ACTIVE=""                            # what boot() actually started
+
+# modern look instead of the 1990s defaults (no cursor theme, DejaVu everywhere)
+if [ -d /usr/share/icons/Yaru ]; then export XCURSOR_THEME="${CURSOR_THEME:-Yaru}"; fi
+export XCURSOR_SIZE="${CURSOR_SIZE:-24}"
+if [ -d /usr/share/themes/Yaru-dark ]; then export GTK_THEME="${DESKTOP_THEME:-Yaru-dark}"; fi
+
 # ------------------------------------------------------------------ utilities
 log()  { printf '\033[36m[chromebook]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[chromebook] WARNING:\033[0m %s\n' "$*" >&2; }
@@ -98,6 +111,21 @@ session_end() {   # the same absolute deadline that hold() enforces (counted fro
   fi
 }
 public_url() { cat "$URL_FILE" 2>/dev/null || true; }
+save_state() {   # boot/hold/status are separate processes: remember what boot started
+  {
+    printf 'DESKTOP_ACTIVE=%q\n' "${DESKTOP_ACTIVE:-}"
+    printf 'DBUS_SESSION_BUS_ADDRESS=%q\n' "${DBUS_SESSION_BUS_ADDRESS:-}"
+    printf 'XDG_RUNTIME_DIR=%q\n' "${XDG_RUNTIME_DIR:-}"
+  } > "$WORK/state.env"
+}
+load_state() {
+  [ -f "$WORK/state.env" ] || return 0
+  # shellcheck disable=SC1090
+  . "$WORK/state.env"
+  [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] && export DBUS_SESSION_BUS_ADDRESS
+  [ -n "${XDG_RUNTIME_DIR:-}" ] && export XDG_RUNTIME_DIR
+  return 0
+}
 os_name() {   # "Ubuntu 26.04 LTS · image 2026xxxx" (the runner exposes ImageVersion)
   local pretty
   pretty="$( . /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-Linux}" )"
@@ -132,10 +160,34 @@ install() {
     xvfb x11vnc novnc websockify openbox tint2 xterm pcmanfm xdotool wmctrl
     x11-utils dbus-x11 feh fontconfig fonts-dejavu-core fonts-noto-core
     fonts-noto-color-emoji adwaita-icon-theme hicolor-icon-theme unzip curl ca-certificates
+    fonts-ubuntu yaru-theme-gtk yaru-theme-icon picom imagemagick
   )
   log "installing desktop packages with apt (first boot takes ~2-4 minutes)"
   $SUDO apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq --no-install-recommends "${pkgs[@]}"
+  # never let apt start daemons (gdm3, cups...) inside the session
+  if [ ! -x /usr/sbin/policy-rc.d ]; then
+    printf '#!/bin/sh\nexit 101\n' | $SUDO tee /usr/sbin/policy-rc.d >/dev/null
+    $SUDO chmod +x /usr/sbin/policy-rc.d
+  fi
+  # a preseed keeps debconf from ever asking anything in a non-interactive run
+  printf 'keyboard-configuration keyboard-configuration/layoutcode string us\n' \
+    | $SUDO debconf-set-selections 2>/dev/null || true
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${pkgs[@]}"
+
+  # The real Ubuntu session (GNOME Shell + Yaru + the Ubuntu dock). It is big, so
+  # a failure here is not fatal: the desktop then falls back to the light
+  # openbox + floating-shelf setup.
+  if [ "${DESKTOP_MODE:-auto}" != "classic" ]; then
+    log "installing the Ubuntu (GNOME) session packages (adds ~1-2 minutes)"
+    local gnome_pkgs=(
+      gnome-session ubuntu-session gnome-shell gnome-shell-extension-ubuntu-dock
+      ubuntu-settings gnome-terminal nautilus
+    )
+    if ! $SUDO env DEBIAN_FRONTEND=noninteractive \
+         apt-get install -y -qq --no-install-recommends "${gnome_pkgs[@]}"; then
+      warn "the Ubuntu session could not be installed; the classic desktop will be used"
+    fi
+  fi
 
   # Ubuntu ships "chromium" as a snap stub, which cannot work on a runner: use Google's own deb.
   # The channel decides how new the browser is: stable < beta < dev(unstable) < canary.
@@ -164,8 +216,102 @@ install() {
 
   write_chrome_policy
   install_fonts
+  install_look
   build_webroot
   log "install complete"
+}
+
+pick_desktop_mode() {
+  case "${DESKTOP_MODE:-auto}" in
+    ubuntu)  have gnome-session && have gnome-shell && echo ubuntu || echo classic ;;
+    classic) echo classic ;;
+    *)       have gnome-session && have gnome-shell && echo ubuntu || echo classic ;;
+  esac
+}
+
+install_look() {   # the Yaru look: dark GTK theme, Ubuntu font, Yaru cursors/icons
+  log "writing the desktop look (Yaru theme, Ubuntu font, GNOME defaults)"
+  local g3="$HOME/.config/gtk-3.0" g4="$HOME/.config/gtk-4.0"
+  mkdir -p "$g3" "$g4" "$HOME/.icons/default" "$HOME/.config/autostart"
+  local theme="Adwaita" icons="Adwaita" cursor="Adwaita"
+  if [ -d /usr/share/themes/Yaru-dark ]; then theme="Yaru-dark"; fi
+  if [ -d /usr/share/icons/Yaru ]; then icons="Yaru"; fi
+  if [ -d /usr/share/icons/Yaru/cursors ]; then cursor="Yaru"; fi
+  cat > "$g3/settings.ini" <<EOF
+[Settings]
+gtk-theme-name=$theme
+gtk-icon-theme-name=$icons
+gtk-font-name=Ubuntu 11
+gtk-cursor-theme-name=$cursor
+gtk-cursor-theme-size=24
+gtk-application-prefer-dark-theme=1
+EOF
+  cp "$g3/settings.ini" "$g4/settings.ini"
+  cat > "$HOME/.icons/default/index.theme" <<EOF
+[Icon Theme]
+Name=Default
+Comment=Default cursor theme
+Inherits=$cursor
+EOF
+  # first-run wizards and background indexers only waste CPU on a runner
+  local a
+  for a in gnome-initial-setup-first-login gnome-initial-setup-copy-worker \
+           gnome-welcome-tour ubuntu-report tracker-miner-fs-3 tracker-miner-rss-3 \
+           evolution-alarm-notify geoclue-demo-agent snap-notification; do
+    printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\n' "$a" \
+      > "$HOME/.config/autostart/$a.desktop"
+  done
+  touch "$HOME/.config/gnome-initial-setup-done"
+  write_dconf_defaults
+}
+
+write_dconf_defaults() {   # system-wide defaults for the GNOME session
+  local db="/etc/dconf/db/cloud-chromebook.d"
+  $SUDO mkdir -p "$db" /etc/dconf/profile
+  $SUDO tee /etc/dconf/profile/user >/dev/null <<'EOF'
+user-db:user
+system-db:cloud-chromebook
+EOF
+  $SUDO tee "$db/00-desktop" >/dev/null <<EOF
+[org/gnome/desktop/background]
+picture-uri='file://$RUNTIME/wallpaper.png'
+picture-uri-dark='file://$RUNTIME/wallpaper.png'
+primary-color='#2a0f25'
+color-shading-type='solid'
+
+[org/gnome/desktop/interface]
+color-scheme='prefer-dark'
+enable-animations=false
+enable-hot-corners=false
+font-name='Ubuntu 11'
+document-font-name='Ubuntu 11'
+monospace-font-name='Ubuntu Mono 12'
+cursor-theme='Yaru'
+cursor-size=24
+
+[org/gnome/desktop/session]
+idle-delay=uint32 0
+
+[org/gnome/desktop/screensaver]
+idle-activation-enabled=false
+lock-enabled=false
+
+[org/gnome/settings-daemon/plugins/power]
+idle-dim=false
+sleep-inactive-ac-type='nothing'
+
+[org/gnome/shell]
+favorite-apps=['google-chrome.desktop', 'cloud-terminal.desktop', 'cloud-files.desktop']
+enabled-extensions=['ubuntu-dock@ubuntu.com']
+welcome-dialog-last-shown-version='99'
+
+[org/gnome/shell/extensions/dash-to-dock]
+dock-position='BOTTOM'
+extend-height=true
+autohide=false
+icon-size=44
+EOF
+  $SUDO dconf update 2>/dev/null || warn "dconf update failed (GNOME will use its defaults)"
 }
 
 write_chrome_policy() {   # keeps the browser UI clean (managed policy, read from /etc/opt/chrome)
@@ -198,6 +344,11 @@ install_fonts() {   # Persian text looks broken without a proper Arabic-script f
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
+  <!-- Latin text in the Ubuntu font (that is what makes a desktop look like Ubuntu) -->
+  <match target="pattern">
+    <test name="family" compare="eq" ignore-blanks="true"><string>sans-serif</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>Ubuntu</string></edit>
+  </match>
   <!-- prefer Persian-friendly families for Arabic script text -->
   <match target="pattern">
     <test name="lang" compare="contains"><string>fa</string></test>
@@ -238,7 +389,7 @@ start_x() {
   is_up xvfb && return 0
   log "starting Xvfb ${RESOLUTION}x${SCREEN_DEPTH} on $DISPLAY"
   spawn xvfb Xvfb "$DISPLAY" -screen 0 "${RESOLUTION}x${SCREEN_DEPTH}" -dpi 96 \
-    -nolisten tcp -ac +extension RANDR -noreset
+    -nolisten tcp -ac +extension RANDR +extension GLX -noreset
   local i
   for i in $(seq 30); do
     xdpyinfo -display "$DISPLAY" >/dev/null 2>&1 && { log "X server is up"; return 0; }
@@ -280,9 +431,73 @@ start_shelf() {   # tint2 = the ChromeOS-like bottom shelf with app launchers
   fi
 }
 
+start_compositor() {   # picom: real transparency for the shelf + soft window shadows
+  is_up picom && return 0
+  have picom || return 0
+  spawn picom picom --config "$ASSETS/picom.conf"
+  sleep 1
+  if is_up picom; then log "compositor (picom) is up"; else
+    warn "picom did not start (transparency will look flat)"
+    tail -n 3 "$LOGS/picom.log" >&2 || true
+  fi
+}
+
+start_gnome() {   # the real Ubuntu session: GNOME Shell + Yaru + the Ubuntu dock
+  is_up gnome-session && return 0
+  have gnome-session && have gnome-shell || return 1
+  # a session bus is required; reuse the one boot() started, unless it is dead
+  if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] \
+     && ! dbus-send --session --print-reply --dest=org.freedesktop.DBus / \
+          org.freedesktop.DBus.ListNames >/dev/null 2>&1; then
+    unset DBUS_SESSION_BUS_ADDRESS
+  fi
+  if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    eval "$(dbus-launch --sh-syntax)"
+    export DBUS_SESSION_BUS_ADDRESS
+    if [ -n "${DBUS_SESSION_BUS_PID:-}" ]; then echo "$DBUS_SESSION_BUS_PID" > "$(pidfile dbus)"; fi
+  fi
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$WORK/xdg-runtime}"
+  mkdir -p "$XDG_RUNTIME_DIR"
+  chmod 700 "$XDG_RUNTIME_DIR"
+  export XDG_SESSION_TYPE=x11
+  export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+  export GNOME_SHELL_SESSION_MODE=ubuntu
+  export XDG_DATA_DIRS="/usr/share/ubuntu:/usr/local/share:/usr/share:/var/lib/snapd/desktop"
+  export LIBGL_ALWAYS_SOFTWARE=1        # no GPU on a runner: GNOME renders through llvmpipe
+  log "starting the Ubuntu (GNOME) session"
+  spawn gnome-session gnome-session --session=ubuntu
+  local i
+  for i in $(seq 90); do
+    pgrep -x gnome-shell >/dev/null && break
+    is_up gnome-session || break
+    sleep 1
+  done
+  if ! pgrep -x gnome-shell >/dev/null; then
+    warn "GNOME Shell did not start (see $LOGS/gnome-session.log)"
+    stop_svc gnome-session
+    return 1
+  fi
+  sleep 2
+  gsettings set org.gnome.desktop.interface enable-animations false >/dev/null 2>&1 || true
+  log "GNOME Shell is up"
+}
+
+shot() {   # screenshot of the desktop; SHOT_B64=1 also prints it as base64 for the log
+  have import || { warn "ImageMagick (import) is not installed"; return 1; }
+  local f="$RUNTIME/last-shot.png"
+  import -display "$DISPLAY" -window root "$f" || { warn "could not capture the screen"; return 1; }
+  log "screenshot: $f ($(du -h "$f" 2>/dev/null | cut -f1))"
+  if [ "${SHOT_B64:-0}" = "1" ]; then
+    echo "-----BEGIN SCREENSHOT-----"
+    base64 "$f" | fold -w 100
+    echo "-----END SCREENSHOT-----"
+  fi
+}
+
 write_desktop_entries() {
   mkdir -p "$APPDIR"
-  [ -f /usr/share/applications/google-chrome.desktop ] || cat > "$APPDIR/google-chrome.desktop" <<EOF
+  if [ ! -f /usr/share/applications/google-chrome.desktop ]; then
+    cat > "$APPDIR/google-chrome.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Google Chrome
@@ -290,21 +505,26 @@ Exec=$CHROME_BIN
 Icon=google-chrome
 Categories=Network;WebBrowser;
 EOF
-  cat > "$APPDIR/cloud-terminal.desktop" <<'EOF'
+  fi
+  local term_exec='xterm -u8 -fa "DejaVu Sans Mono" -fs 11 -bg #101418 -fg #e8eaed -title Terminal'
+  if have gnome-terminal; then term_exec="gnome-terminal"; fi
+  cat > "$APPDIR/cloud-terminal.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Terminal
 Comment=Run apt/pip/npm inside this session
-Exec=xterm -u8 -fa "DejaVu Sans Mono" -fs 11 -bg #101418 -fg #e8eaed -title "Terminal"
+Exec=$term_exec
 Icon=utilities-terminal
 Categories=System;TerminalEmulator;
 EOF
-  cat > "$APPDIR/cloud-files.desktop" <<'EOF'
+  local files_exec="pcmanfm"
+  if have nautilus; then files_exec="nautilus --new-window"; fi
+  cat > "$APPDIR/cloud-files.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Files
 Comment=Browse the runner filesystem
-Exec=pcmanfm
+Exec=$files_exec
 Icon=folder
 Categories=System;FileManager;
 EOF
@@ -464,6 +684,7 @@ announce() {
   log "Cloud Chromebook is ready"
   log "open this in your browser: ${url:-<not ready, check the trycloudflare step>}"
   log "screen ${RESOLUTION} | Chrome $(chrome_version) (${CHROME_CHANNEL}) | $(os_name)"
+  log "desktop: $([ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ] && echo 'Ubuntu GNOME (Yaru theme, Ubuntu dock)' || echo 'classic Chromebook shelf (openbox + tint2)')"
   log "session ends ~${end}"
   log "──────────────────────────────────────────────────────────────"
   if [ -n "$url" ]; then
@@ -477,6 +698,7 @@ announce() {
       echo "|---|---|"
       echo "| Screen | ${RESOLUTION} |"
       echo "| System | $(os_name) |"
+      echo "| Desktop | $([ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ] && echo 'Ubuntu · GNOME Shell + Yaru' || echo 'classic · openbox + floating shelf') |"
       echo "| Browser | Google Chrome $(chrome_version) · ${CHROME_CHANNEL} channel |"
       echo "| Runner | \`$(hostname)\` · $(nproc) vCPU · $(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 )) MB RAM |"
       echo "| Session ends | ${end} |"
@@ -493,33 +715,67 @@ boot() {
   resolve_chrome || die "Chrome not found: run 'chromebook.sh install' first"
   have Xvfb && have x11vnc && have websockify || die "missing packages: run 'chromebook.sh install' first"
 
-  log "session start ${SESSION_START} (${RESOLUTION}, budget ${SESSION_SECONDS}s)"
+  local mode; mode="$(pick_desktop_mode)"
+  log "session start ${SESSION_START} (${RESOLUTION}, budget ${SESSION_SECONDS}s, desktop ${mode})"
   start_x
   set_wallpaper
-  start_wm
   write_desktop_entries
-  start_shelf
+  if [ "$mode" = "ubuntu" ]; then
+    if ! start_gnome; then
+      warn "falling back to the light classic desktop"
+      mode=classic
+    fi
+  fi
+  if [ "$mode" = "classic" ]; then
+    start_wm
+    start_compositor
+    start_shelf
+  fi
+  DESKTOP_ACTIVE="$mode"
   start_vnc
   start_web
   start_tunnel || true
   render_pages
   start_chrome
+  save_state
   announce "$(public_url)"
 }
 
 healthcheck() {
   if ! is_up xvfb; then
     warn "Xvfb died: rebuilding the desktop"
-    stop_svc xvfb; stop_svc openbox; stop_svc tint2; stop_svc x11vnc
-    start_x; set_wallpaper; start_wm; start_shelf; start_vnc
+    stop_svc xvfb; stop_svc gnome-session; stop_svc openbox; stop_svc tint2
+    stop_svc picom; stop_svc x11vnc
+    start_x; set_wallpaper; write_desktop_entries
+    if [ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ] && ! start_gnome; then
+      warn "GNOME did not come back: using the classic desktop"
+      DESKTOP_ACTIVE=classic
+    fi
+    if [ "${DESKTOP_ACTIVE:-classic}" = "classic" ]; then
+      start_wm; start_compositor; start_shelf
+    fi
+    start_vnc
     start_web || true
     start_tunnel || true
     render_pages
     start_chrome
     return 0
   fi
-  is_up openbox   || { warn "restarting openbox"; start_wm; }
-  is_up tint2     || { warn "restarting the tint2 shelf"; start_shelf; }
+  if [ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ]; then
+    if ! is_up gnome-session || ! pgrep -x gnome-shell >/dev/null; then
+      warn "the GNOME session died: restarting it"
+      stop_svc gnome-session
+      if ! start_gnome; then
+        warn "GNOME did not come back: switching to the classic desktop"
+        DESKTOP_ACTIVE=classic
+        start_wm; start_compositor; start_shelf
+      fi
+    fi
+  else
+    is_up openbox   || { warn "restarting openbox"; start_wm; }
+    is_up picom     || { warn "restarting the compositor"; start_compositor; }
+    is_up tint2     || { warn "restarting the tint2 shelf"; start_shelf; }
+  fi
   is_up x11vnc    || { warn "restarting x11vnc"; start_vnc; }
   is_up websockify || { warn "restarting noVNC"; start_web || true; }
   if ! is_up cloudflared; then
@@ -530,6 +786,7 @@ healthcheck() {
     fi
   fi
   chrome_alive || { warn "Chrome died: restarting"; start_chrome; }
+  save_state
 }
 
 print_status() {
@@ -549,6 +806,7 @@ print_status() {
 }
 
 hold() {
+  load_state
   local deadline=$(( ${JOB_START:-$(date +%s)} + SESSION_SECONDS ))
   local now next_status=0 chain=false
   trap 'log "stop signal received: finishing"; exit 0' INT TERM
@@ -574,17 +832,27 @@ hold() {
 }
 
 status() {
-  local url res
+  load_state
+  local url res mode s list
   url="$(public_url)"
   res="$(xdpyinfo -display "$DISPLAY" 2>/dev/null | awk '/dimensions:/{print $2; exit}')"
+  mode="${DESKTOP_ACTIVE:-$(pick_desktop_mode)}"
   printf 'url=%s\n' "$url"
   printf 'display=%s res=%s\n' "$DISPLAY" "${res:-$RESOLUTION}"
   printf 'system=%s\n' "$(os_name)"
   printf 'browser=%s\n' "$([ -n "$CHROME_BIN" ] || resolve_chrome; chrome_version) (${CHROME_CHANNEL} channel)"
-  local s
-  for s in xvfb openbox tint2 x11vnc websockify cloudflared; do
+  printf 'desktop=%s\n' "$mode"
+  if [ "$mode" = "ubuntu" ]; then
+    list="xvfb gnome-session x11vnc websockify cloudflared"
+  else
+    list="xvfb openbox picom tint2 x11vnc websockify cloudflared"
+  fi
+  for s in $list; do
     printf '%-12s %s\n' "$s" "$(is_up "$s" && echo up || echo DOWN)"
   done
+  if [ "$mode" = "ubuntu" ]; then
+    printf '%-12s %s\n' gnome-shell "$(pgrep -x gnome-shell >/dev/null && echo up || echo DOWN)"
+  fi
   printf '%-12s %s\n' chrome "$(chrome_alive && echo up || echo DOWN)"
 }
 
@@ -594,5 +862,6 @@ case "${1:-}" in
   hold)    hold ;;
   url)     public_url ;;
   status)  status ;;
-  *) echo "usage: chromebook.sh install|boot|hold|url|status" >&2; exit 2 ;;
+  shot)    shot ;;
+  *) echo "usage: chromebook.sh install|boot|hold|url|status|shot" >&2; exit 2 ;;
 esac

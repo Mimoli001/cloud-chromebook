@@ -9,15 +9,15 @@
 <style>
   @font-face{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/fonts/webfonts/Vazirmatn-Regular.woff2) format('woff2');font-weight:400;font-display:swap}
   @font-face{font-family:Vazirmatn;src:url(https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/fonts/webfonts/Vazirmatn-Bold.woff2) format('woff2');font-weight:700;font-display:swap}
-  :root{--text:#e8ecf5;--dim:#9fb0cf;--line:#233050;--accent:#4285f4}
+  :root{--text:#f4ecf1;--dim:#c9aebd;--line:#412339;--accent:#e95420}
   *{box-sizing:border-box}
   body{
     margin:0; min-height:100vh; color:var(--text);
     font-family:Vazirmatn,"Noto Sans Arabic",Tahoma,sans-serif;
     background:
-      radial-gradient(900px 520px at 75% 5%, rgba(66,133,244,.35), transparent 60%),
-      radial-gradient(700px 480px at 12% 90%, rgba(52,168,83,.20), transparent 60%),
-      linear-gradient(165deg,#16233f 0%,#0b1020 60%,#070a13 100%);
+      radial-gradient(900px 520px at 75% 5%, rgba(233,84,32,.30), transparent 60%),
+      radial-gradient(700px 480px at 12% 90%, rgba(119,41,83,.45), transparent 60%),
+      linear-gradient(165deg,#2a0f25 0%,#1b0b18 60%,#120711 100%);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:26px; padding:42px 18px 56px;
   }
@@ -27,11 +27,11 @@
   .search form{display:flex; gap:8px}
   .search input{
     flex:1 1 auto; min-width:0; padding:15px 18px; border-radius:999px; font-family:inherit; font-size:1rem;
-    background:rgba(18,26,46,.9); color:var(--text); border:1px solid var(--line); outline:none;
+    background:rgba(38,16,42,.9); color:var(--text); border:1px solid var(--line); outline:none;
   }
-  .search input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(66,133,244,.18)}
+  .search input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(233,84,32,.20)}
   .search button{
-    padding:0 22px; border-radius:999px; border:1px solid var(--line); background:#1b2740; color:var(--text);
+    padding:0 22px; border-radius:999px; border:1px solid var(--line); background:#3a1b33; color:var(--text);
     font-family:inherit; font-size:.95rem; cursor:pointer
   }
   .search button:hover{border-color:var(--accent)}
@@ -44,14 +44,14 @@
     font-size:1.35rem; font-weight:700; color:#fff; box-shadow:0 8px 20px rgba(0,0,0,.35)
   }
   .panel{
-    width:100%; max-width:760px; background:rgba(18,26,46,.82); border:1px solid var(--line); border-radius:18px;
+    width:100%; max-width:760px; background:rgba(38,16,42,.82); border:1px solid var(--line); border-radius:18px;
     padding:18px 20px; font-size:.82rem; color:var(--dim)
   }
   .panel h2{margin:0 0 12px; font-size:.95rem; color:var(--text); font-weight:700}
   .kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px 18px}
   .kv div b{display:block; color:var(--text); font-size:.9rem; margin-top:2px; direction:ltr; text-align:right; word-break:break-all}
   .hint{margin-top:14px; padding-top:12px; border-top:1px dashed var(--line); line-height:2}
-  code{background:#0d1424; border:1px solid var(--line); border-radius:6px; padding:1px 6px; direction:ltr; display:inline-block}
+  code{background:#2c1027; border:1px solid var(--line); border-radius:6px; padding:1px 6px; direction:ltr; display:inline-block}
 </style>
 </head>
 <body>

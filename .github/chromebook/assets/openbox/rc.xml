@@ -11,13 +11,13 @@
     <keepBorder>yes</keepBorder>
     <animateIconify>no</animateIconify>
     <font place="ActiveWindow">
-      <name>DejaVu Sans</name>
-      <size>9</size>
+      <name>Ubuntu</name>
+      <size>10</size>
       <weight>bold</weight>
     </font>
     <font place="InactiveWindow">
-      <name>DejaVu Sans</name>
-      <size>9</size>
+      <name>Ubuntu</name>
+      <size>10</size>
       <weight>normal</weight>
     </font>
   </theme>
@@ -73,5 +73,12 @@
         <x>60</x><y>60</y>
       </position>
     </application>
+    <!-- GNOME apps draw their own header bars: let them, or we get two title bars -->
+    <application class="Gnome-terminal"><decor>no</decor><maximized>no</maximized></application>
+    <application class="gnome-terminal"><decor>no</decor><maximized>no</maximized></application>
+    <application class="org.gnome.Terminal"><decor>no</decor><maximized>no</maximized></application>
+    <application class="Nautilus"><decor>no</decor><maximized>no</maximized></application>
+    <application class="nautilus"><decor>no</decor><maximized>no</maximized></application>
+    <application class="org.gnome.Nautilus"><decor>no</decor><maximized>no</maximized></application>
   </applications>
 </openbox_config>
