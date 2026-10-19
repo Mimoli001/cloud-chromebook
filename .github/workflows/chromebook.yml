@@ -59,10 +59,6 @@ on:
         description: "How long the desktop stays alive, in minutes (1-350)"
         required: false
         default: "300"
-      password:
-        description: "Password for the remote desktop (optional; empty = use the VNC_PASSWORD secret)"
-        required: false
-        default: ""
       chain:
         description: "Start a fresh run automatically when this session is over"
         type: boolean
@@ -97,9 +93,10 @@ jobs:
       DESKTOP_MODE: ${{ inputs.desktop || 'auto' }}
       CHROME_LANG: ${{ inputs.ui_language }}
       CHAIN: ${{ inputs.chain }}
-      # The desktop password: the run input wins, otherwise the repository secret.
-      # It is masked in the logs and never rendered into the public web pages.
-      VNC_PASSWORD: ${{ inputs.password || secrets.VNC_PASSWORD }}
+      # The desktop password comes from the repository secret only: GitHub masks
+      # secrets in the logs, while a workflow_dispatch input would be echoed
+      # (and the run logs of a public repository are public).
+      VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
       REPO_PRIVATE: ${{ github.event.repository.private }}
       GH_TOKEN: ${{ github.token }}
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
@@ -147,9 +144,9 @@ jobs:
           # A public repository exposes its run logs, summaries and the tunnel URL.
           # Refuse to open a desktop there instead of leaking somebody's session.
           if [ "${REPO_PRIVATE:-}" = "false" ] && [ -z "${VNC_PASSWORD:-}" ]; then
-            echo "::error::This repository is public and no desktop password is set."
-            echo "::error::Pass the 'password' input when running the workflow, or set the"
-            echo "::error::VNC_PASSWORD secret (Settings > Secrets and variables > Actions)."
+            echo "::error::This repository is public and the VNC_PASSWORD secret is not set."
+            echo "::error::Add it in Settings > Secrets and variables > Actions > New repository secret"
+            echo "::error::(name: VNC_PASSWORD) and run the workflow again."
             exit 1
           fi
 
