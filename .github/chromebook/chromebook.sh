@@ -784,6 +784,11 @@ announce() {
       echo "| Runner | \`$(hostname)\` · $(nproc) vCPU · $(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 )) MB RAM |"
       echo "| Session ends | ${end} |"
       echo
+      if [ "${DESKTOP_ACTIVE:-classic}" = "classic" ] && [ "$(ubuntu_version_num)" -ge 2510 ]; then
+        echo "> ℹ️ GNOME on this image ($( . /etc/os-release; printf '%s' "${PRETTY_NAME:-?}" )) is Wayland only,"
+        echo "> so it cannot run on Xvfb. Pass \`runner_image: ubuntu-24.04\` to get the real GNOME desktop."
+        echo
+      fi
       echo "> Quick tunnels are public and get a new random URL on every run."
       echo "> Video streaming (YouTube etc.) is not smooth on a 2-core runner."
     } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

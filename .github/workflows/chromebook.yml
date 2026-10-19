@@ -13,14 +13,14 @@ on:
   workflow_dispatch:
     inputs:
       runner_image:
-        description: "Runner OS image (ubuntu-26.04 = newest, ubuntu-latest = 24.04)"
+        description: "Runner OS image (ubuntu-24.04 = GNOME desktop, ubuntu-26.04 = newest, GNOME is Wayland-only there)"
         type: choice
         required: false
-        default: ubuntu-26.04
+        default: ubuntu-24.04
         options:
+          - ubuntu-24.04
           - ubuntu-26.04
           - ubuntu-latest
-          - ubuntu-24.04
           - ubuntu-22.04
       chrome_channel:
         description: "Chrome release channel (stable < beta < dev/unstable < canary)"
