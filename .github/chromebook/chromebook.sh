@@ -7,7 +7,7 @@
 #
 #      Xvfb (:99) ── openbox + tint2 shelf + Google Chrome
 #            │
-#            ├── x11vnc    (RFB, 127.0.0.1:5900, no password)
+#            ├── x11vnc    (RFB, 127.0.0.1:5900, password = $VNC_PASSWORD, optional)
 #            └── websockify+noVNC (HTTP+WebSocket, 127.0.0.1:6080)
 #                     │
 #                     └── cloudflared quick tunnel  ->  https://<random>.trycloudflare.com
@@ -18,6 +18,9 @@
 #     hold     watchdog: keeps the job alive and restarts anything that dies
 #     url      print the current public URL (empty when not ready)
 #     status   one-line health report (used by the workflow and for debugging)
+#
+#  VNC_PASSWORD=<pw>  protects the desktop: the password is never printed, only
+#  its state is reported. Without it the desktop is open to anyone holding the URL.
 # =============================================================================
 set -euo pipefail
 
@@ -40,6 +43,11 @@ RESOLUTION="${RESOLUTION:-1600x900}"
 SCREEN_DEPTH="${SCREEN_DEPTH:-24}"
 VNC_PORT="${VNC_PORT:-5900}"
 WEB_PORT="${WEB_PORT:-6080}"
+# Remote-desktop password (RFB/VNC auth). Empty -> x11vnc runs with -nopw.
+# The value is only ever handed to `x11vnc -storepasswd`, never echoed or logged.
+VNC_PASSWORD="${VNC_PASSWORD:-}"
+VNC_PASSFILE="$WORK/vncpasswd"
+VNC_PASS_MAX=8                                # the RFB handshake only carries 8 characters
 LOCAL_URL="http://127.0.0.1:${WEB_PORT}"
 NOVNC_QUALITY="${NOVNC_QUALITY:-6}"          # 0 (worst) .. 9 (best picture, more bandwidth)
 NOVNC_COMPRESSION="${NOVNC_COMPRESSION:-2}"  # 0 (fastest) .. 9 (smallest)
@@ -639,11 +647,88 @@ EOF
 }
 
 # ------------------------------------------------------------------ remote access
+vnc_auth_on() { [ -n "${VNC_PASSWORD:-}" ] && [ -s "${VNC_PASSFILE:-/nonexistent}" ]; }
+
+prepare_vnc_password() {   # turn $VNC_PASSWORD into the obfuscated file x11vnc expects
+  vnc_auth_on && return 0
+  if [ -z "${VNC_PASSWORD:-}" ]; then
+    rm -f "$VNC_PASSFILE"
+    warn "no VNC password: anyone with the public URL can use this desktop"
+    return 1
+  fi
+  if [ "${#VNC_PASSWORD}" -gt "$VNC_PASS_MAX" ]; then
+    warn "VNC passwords are limited to ${VNC_PASS_MAX} characters; only the first ${VNC_PASS_MAX} are used"
+  fi
+  if ! x11vnc -storepasswd "$VNC_PASSWORD" "$VNC_PASSFILE" >/dev/null 2>&1; then
+    rm -f "$VNC_PASSFILE"
+    warn "could not write $VNC_PASSFILE: the desktop stays open (check the x11vnc package)"
+    return 1
+  fi
+  chmod 600 "$VNC_PASSFILE" 2>/dev/null || true
+  log "VNC password is set (RFB auth on, ${#VNC_PASSWORD} chars, value never logged)"
+}
+
+rfb_auth_types() {   # ask the running server which RFB security types it offers (2 = password)
+  python3 - "$VNC_PORT" <<'PY'
+import socket, sys
+port = int(sys.argv[1])
+try:
+    sock = socket.create_connection(("127.0.0.1", port), timeout=3)
+    sock.settimeout(3)
+    sock.recv(12)                       # the server greets with "RFB 003.008\n"
+    sock.sendall(b"RFB 003.008\n")
+    count = sock.recv(1)
+    if not count:
+        raise OSError("server closed the connection")
+    types = sock.recv(count[0])
+    print(",".join(str(t) for t in types))
+except Exception as exc:                # noqa: BLE001 - report and let the caller decide
+    print(f"error: {exc}")
+PY
+}
+
+auth_state() {   # shown on the landing page
+  vnc_auth_on && printf 'فعال (RFB)' || printf 'غیرفعال'
+}
+
+desktop_label() {   # which desktop boot() actually started, in Persian
+  if [ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ]; then
+    printf 'اوبونتو (GNOME)'
+  else
+    printf 'کلاسیک (openbox)'
+  fi
+}
+
+auth_note() {   # the "how safe is this" sentence on the landing page
+  if vnc_auth_on; then
+    printf 'دسکتاپ با رمز محافظت می‌شود: noVNC پیش از نشان‌دادن تصویر، رمز را می‌پرسد. با این حال لینک را جای عمومی پست نکن و سشن را کوتاه نگه دار.'
+  else
+    printf 'این نشانی رمز ندارد؛ هر کس آن را داشته باشد به دسکتاپ راه پیدا می‌کند. لینک را جایی منتشر نکن و سشن را کوتاه نگه دار.'
+  fi
+}
+
+auth_line() {   # one-liner for logs/status: states the truth, never the password
+  if ! vnc_auth_on; then printf 'off (no password)'; return 0; fi
+  local types; types="$(rfb_auth_types)"
+  case ",$types," in
+    *,1,*) printf 'on, but the server also offers no-auth (%s)!' "$types" ;;
+    *,2,*) printf 'on (RFB password required)' ;;
+    *)     printf 'on (not verified: %s)' "$types" ;;
+  esac
+}
+
 start_vnc() {
   is_up x11vnc && return 0
-  log "starting x11vnc on 127.0.0.1:$VNC_PORT"
-  spawn x11vnc x11vnc -display "$DISPLAY" -rfbport "$VNC_PORT" -localhost -nopw \
-    -forever -shared -noxdamage -xkb -repeat -capslock -o "$LOGS/x11vnc-daemon.log" -quiet
+  local args=(-display "$DISPLAY" -rfbport "$VNC_PORT" -localhost -forever -shared -noxdamage -xkb
+              -repeat -capslock -o "$LOGS/x11vnc-daemon.log" -quiet)
+  if vnc_auth_on; then
+    args+=(-rfbauth "$VNC_PASSFILE" -maxauth 6)
+    log "starting x11vnc on 127.0.0.1:$VNC_PORT (password required)"
+  else
+    args+=(-nopw)
+    log "starting x11vnc on 127.0.0.1:$VNC_PORT (no password)"
+  fi
+  spawn x11vnc x11vnc "${args[@]}"
   sleep 1
   is_up x11vnc && log "x11vnc is up" || { tail -n 5 "$LOGS/x11vnc.log" >&2 || true; warn "x11vnc failed"; }
 }
@@ -777,6 +862,9 @@ render_page() {   # render_page <template> <destination>
       -e "s|__CHROME__|$(esc "$(chrome_version) (${CHROME_CHANNEL})")|g" \
       -e "s|__CHROME_VERSION__|$(esc "$(chrome_version)")|g" \
       -e "s|__CHANNEL__|$(esc "$CHROME_CHANNEL")|g" \
+      -e "s|__AUTH_STATE__|$(esc "$(auth_state)")|g" \
+      -e "s|__AUTH_NOTE__|$(esc "$(auth_note)")|g" \
+      -e "s|__DESKTOP_LABEL__|$(esc "$(desktop_label)")|g" \
       -e "s|__CORES__|$(nproc)|g" \
       -e "s|__RAM__|$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 )) MB|g" \
       -e "s|__DISK__|$(df -h --output=size / | tail -1 | tr -d ' ')|g" \
@@ -798,6 +886,7 @@ announce() {
   log "open this in your browser: ${url:-<not ready, check the trycloudflare step>}"
   log "screen ${RESOLUTION} | Chrome $(chrome_version) (${CHROME_CHANNEL}) | $(os_name)"
   log "desktop: $([ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ] && echo 'Ubuntu GNOME (Yaru theme, Ubuntu dock)' || echo 'classic Chromebook shelf (openbox + tint2)')"
+  log "password: $(auth_line)"
   log "session ends ~${end}"
   log "──────────────────────────────────────────────────────────────"
   if [ -n "$url" ]; then
@@ -814,6 +903,11 @@ announce() {
       echo "| Desktop | $([ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ] && echo 'Ubuntu · GNOME Shell + Yaru' || echo 'classic · openbox + floating shelf') |"
       echo "| Browser | Google Chrome $(chrome_version) · ${CHROME_CHANNEL} channel |"
       echo "| Runner | \`$(hostname)\` · $(nproc) vCPU · $(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 )) MB RAM |"
+      if vnc_auth_on; then
+        echo "| Password | ✅ required (VNC/RFB) |"
+      else
+        echo "| Password | ⚠️ **none** — the link alone opens the desktop |"
+      fi
       echo "| Session ends | ${end} |"
       echo
       if [ "${DESKTOP_ACTIVE:-classic}" = "classic" ] && [ "$(ubuntu_version_num)" -ge 2510 ]; then
@@ -821,11 +915,16 @@ announce() {
         echo "> so it cannot run on Xvfb. Pass \`runner_image: ubuntu-24.04\` to get the real GNOME desktop."
         echo
       fi
-      echo "> Quick tunnels are public and get a new random URL on every run."
+      echo "> Quick tunnels are public and get a new random URL on every run, so keep the link to yourself."
+      if vnc_auth_on; then
+        echo "> The desktop itself asks for the password before showing anything (set it with the \`password\` input or the \`VNC_PASSWORD\` secret)."
+      else
+        echo "> ⚠️ This run has no password: whoever gets the link sees the desktop."
+      fi
       echo "> Video streaming (YouTube etc.) is not smooth on a 2-core runner."
     } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   fi
-  notify "Cloud Chromebook is ready: ${url:-pending}"
+  notify "Cloud Chromebook is ready: ${url:-pending} ($(vnc_auth_on && echo 'password required' || echo 'no password'))"
 }
 
 # ------------------------------------------------------------------ boot / hold
@@ -852,6 +951,7 @@ boot() {
     start_shelf
   fi
   DESKTOP_ACTIVE="$mode"
+  prepare_vnc_password || true
   start_vnc
   start_web
   start_tunnel || true
@@ -971,6 +1071,7 @@ status() {
   printf 'display=%s res=%s\n' "$DISPLAY" "${res:-$RESOLUTION}"
   printf 'system=%s\n' "$(os_name)"
   printf 'browser=%s\n' "$([ -n "$CHROME_BIN" ] || resolve_chrome; chrome_version) (${CHROME_CHANNEL} channel)"
+  printf 'auth=%s\n' "$(auth_line)"
   printf 'desktop=%s\n' "$mode"
   if [ "$mode" = "ubuntu" ]; then
     list="xvfb gnome-session x11vnc websockify cloudflared"

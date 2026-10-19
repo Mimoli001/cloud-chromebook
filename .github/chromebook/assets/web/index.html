@@ -118,6 +118,7 @@
     margin:0; flex:1 1 auto; min-width:0; font-size:.79rem; color:#ded7e2; font-family:var(--mono);
     direction:ltr; text-align:left; unicode-bidi:isolate; overflow-wrap:anywhere;
   }
+  .specs dd.fa{direction:rtl; font-family:inherit; font-size:.82rem; unicode-bidi:plaintext}
   .tag{
     font-family:var(--mono); font-size:.66rem; color:#e7b9df; background:rgba(119,33,111,.28);
     border:1px solid rgba(151,60,140,.4); border-radius:5px; padding:0 5px; line-height:1.6;
@@ -270,6 +271,8 @@
           <div><dt>نمایشگر</dt><dd>__RES__</dd></div>
           <div><dt>معماری</dt><dd>__ARCH__</dd></div>
           <div><dt>میزبان</dt><dd>__HOST__</dd></div>
+          <div><dt>رمز اتصال</dt><dd class="fa">__AUTH_STATE__</dd></div>
+          <div><dt>دسکتاپ</dt><dd class="fa">__DESKTOP_LABEL__</dd></div>
           <div><dt>دیسک</dt><dd>__DISK__</dd></div>
           <div><dt>شروع سشن</dt><dd>__START__</dd></div>
           <div><dt>پایان سشن</dt><dd>__END__</dd></div>
@@ -300,10 +303,7 @@
         </div>
         <div class="callout">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2.4"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></svg>
-          <span>
-            این نشانی رمز ندارد؛ هر کس آن را داشته باشد به دسکتاپ راه پیدا می‌کند.
-            لینک را جایی منتشر نکنید و سشن را کوتاه نگه دارید.
-          </span>
+          <span>__AUTH_NOTE__</span>
         </div>
       </section>
 
@@ -319,7 +319,7 @@
             </span>
             <span>
               <b>اول یک بار داخل تصویر کلیک کنید</b>
-              <span>تا کیبورد و ماوس کامپیوتر خودتان به دسکتاپ وصل شود</span>
+              <span>اگر روی سشن رمز باشد، noVNC اول رمز را می‌پرسد؛ بعد از آن کیبورد و ماوس کامپیوتر خودتان به دسکتاپ وصل می‌شود</span>
             </span>
           </li>
           <li>
