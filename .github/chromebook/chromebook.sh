@@ -89,9 +89,13 @@ notify() {   # optional Telegram message (nice for long sessions / chained runs)
   curl -fsS -m 15 "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
     --data-urlencode "chat_id=$TG_CHAT_ID" --data-urlencode "text=$1" >/dev/null 2>&1 || true
 }
-session_end() {
+session_end() {   # the same absolute deadline that hold() enforces (counted from the job start)
   local s="${SESSION_SECONDS:-0}"
-  if [ "$s" -gt 0 ] 2>/dev/null; then date -u -d "@$(( $(date +%s) + s ))" '+%H:%M UTC'; else echo "—"; fi
+  if [ "$s" -gt 0 ] 2>/dev/null; then
+    date -u -d "@$(( ${JOB_START:-$(date +%s)} + s ))" '+%H:%M UTC'
+  else
+    echo "—"
+  fi
 }
 public_url() { cat "$URL_FILE" 2>/dev/null || true; }
 os_name() {   # "Ubuntu 26.04 LTS · image 2026xxxx" (the runner exposes ImageVersion)
