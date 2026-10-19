@@ -118,6 +118,23 @@ save_state() {   # boot/hold/status are separate processes: remember what boot s
     printf 'XDG_RUNTIME_DIR=%q\n' "${XDG_RUNTIME_DIR:-}"
   } > "$WORK/state.env"
 }
+bus_alive() {
+  if have dbus-send; then
+    dbus-send --session --print-reply --dest=org.freedesktop.DBus / \
+      org.freedesktop.DBus.ListNames >/dev/null 2>&1
+  elif have gdbus; then
+    gdbus call --session --dest org.freedesktop.DBus --object-path / \
+      --method org.freedesktop.DBus.ListNames >/dev/null 2>&1
+  else return 0; fi
+}
+ensure_session_bus() {   # GTK/GNOME apps expect a session bus (gnome-terminal, mutter, ...)
+  if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] && bus_alive; then return 0; fi
+  unset DBUS_SESSION_BUS_ADDRESS
+  eval "$(dbus-launch --sh-syntax)"
+  export DBUS_SESSION_BUS_ADDRESS
+  if [ -n "${DBUS_SESSION_BUS_PID:-}" ]; then echo "$DBUS_SESSION_BUS_PID" > "$(pidfile dbus)"; fi
+  return 0
+}
 load_state() {
   [ -f "$WORK/state.env" ] || return 0
   # shellcheck disable=SC1090
@@ -130,6 +147,11 @@ os_name() {   # "Ubuntu 26.04 LTS · image 2026xxxx" (the runner exposes ImageVe
   local pretty
   pretty="$( . /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-Linux}" )"
   if [ -n "${ImageVersion:-}" ]; then printf '%s · image %s' "$pretty" "$ImageVersion"; else printf '%s' "$pretty"; fi
+}
+ubuntu_version_num() {   # 24.04 -> 2404, 26.04 -> 2604 (0 when it is not Ubuntu)
+  local v
+  v="$( . /etc/os-release 2>/dev/null; printf '%s' "${VERSION_ID:-0}" )"
+  printf '%s' "${v//./}"
 }
 chrome_version() {
   [ -n "$CHROME_BIN" ] || return 0
@@ -161,6 +183,7 @@ install() {
     x11-utils dbus-x11 feh fontconfig fonts-dejavu-core fonts-noto-core
     fonts-noto-color-emoji adwaita-icon-theme hicolor-icon-theme unzip curl ca-certificates
     fonts-ubuntu yaru-theme-gtk yaru-theme-icon picom imagemagick mesa-utils
+    gnome-terminal dconf-cli
   )
   log "installing desktop packages with apt (first boot takes ~2-4 minutes)"
   $SUDO apt-get update -qq
@@ -177,7 +200,10 @@ install() {
   # The real Ubuntu session (GNOME Shell + Yaru + the Ubuntu dock). It is big, so
   # a failure here is not fatal: the desktop then falls back to the light
   # openbox + floating-shelf setup.
-  if [ "${DESKTOP_MODE:-auto}" != "classic" ]; then
+  if [ "${DESKTOP_MODE:-auto}" = "auto" ] && [ "$(ubuntu_version_num)" -ge 2510 ]; then
+    log "GNOME on this image is Wayland only (no X11 session): installing the classic desktop only"
+    log "(choose desktop=ubuntu to force GNOME, or runner_image=ubuntu-24.04 for GNOME on X11)"
+  elif [ "${DESKTOP_MODE:-auto}" != "classic" ]; then
     log "installing the Ubuntu (GNOME) session packages (adds ~1-2 minutes)"
     local gnome_pkgs=(
       gnome-session ubuntu-session gnome-shell gnome-shell-extension-ubuntu-dock
@@ -221,11 +247,35 @@ install() {
   log "install complete"
 }
 
-pick_desktop_mode() {
+gnome_x11_supported() {   # GNOME 50 (Ubuntu 26.04+) is Wayland only: no X11 session at all
+  have gnome-shell || return 1
+  gnome-shell --help 2>/dev/null | grep -q -- '--x11'
+}
+
+pick_desktop_mode() {   # ubuntu | classic  (auto = whatever this image can really do)
   case "${DESKTOP_MODE:-auto}" in
-    ubuntu)  have gnome-session && have gnome-shell && echo ubuntu || echo classic ;;
-    classic) echo classic ;;
-    *)       have gnome-session && have gnome-shell && echo ubuntu || echo classic ;;
+    classic)
+      echo classic
+      ;;
+    ubuntu)
+      if have gnome-session && have gnome-shell; then echo ubuntu
+      else warn "GNOME is not installed here; using the classic desktop" >&2; echo classic; fi
+      ;;
+    *)
+      if ! have gnome-session || ! have gnome-shell; then
+        if [ "$(ubuntu_version_num)" -ge 2510 ]; then
+          warn "GNOME on this image ($( . /etc/os-release; printf '%s' "${PRETTY_NAME:-?}" )) is Wayland only (no X11 session); using the classic desktop" >&2
+          warn "for the real GNOME desktop pick runner_image=ubuntu-24.04 (or 22.04)" >&2
+        fi
+        echo classic
+      elif ! gnome_x11_supported; then
+        warn "$(gnome-shell --version 2>/dev/null | head -1) on this image has no X11 session (GNOME 50+ is Wayland only)." >&2
+        warn "using the classic desktop on Xvfb; pick runner_image=ubuntu-24.04 with desktop=ubuntu for the real GNOME desktop" >&2
+        echo classic
+      else
+        echo ubuntu
+      fi
+      ;;
   esac
 }
 
@@ -444,18 +494,15 @@ start_compositor() {   # picom: real transparency for the shelf + soft window sh
 
 start_gnome() {   # the real Ubuntu session: GNOME Shell + Yaru + the Ubuntu dock
   gnome_alive && return 0
-  have gnome-shell || return 1
-  # a session bus is required; reuse the one boot() started, unless it is dead
-  if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] \
-     && ! dbus-send --session --print-reply --dest=org.freedesktop.DBus / \
-          org.freedesktop.DBus.ListNames >/dev/null 2>&1; then
-    unset DBUS_SESSION_BUS_ADDRESS
+  if ! have gnome-session || ! have gnome-shell; then
+    warn "the GNOME session is not installed"
+    return 1
   fi
-  if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
-    eval "$(dbus-launch --sh-syntax)"
-    export DBUS_SESSION_BUS_ADDRESS
-    if [ -n "${DBUS_SESSION_BUS_PID:-}" ]; then echo "$DBUS_SESSION_BUS_PID" > "$(pidfile dbus)"; fi
+  if ! gnome_x11_supported; then
+    warn "$(gnome-shell --version 2>/dev/null | head -1) has no X11 session (Wayland only), so it cannot run on Xvfb"
+    return 1
   fi
+  ensure_session_bus
   export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$WORK/xdg-runtime}"
   mkdir -p "$XDG_RUNTIME_DIR"
   chmod 700 "$XDG_RUNTIME_DIR"
@@ -464,31 +511,27 @@ start_gnome() {   # the real Ubuntu session: GNOME Shell + Yaru + the Ubuntu doc
   export GNOME_SHELL_SESSION_MODE=ubuntu
   export XDG_DATA_DIRS="/usr/share/ubuntu:/usr/local/share:/usr/share:/var/lib/snapd/desktop"
   export LIBGL_ALWAYS_SOFTWARE=1        # no GPU on a runner: GNOME renders through llvmpipe
+  log "GNOME: $(gnome-shell --version 2>/dev/null | head -1) | sessions: $(ls /usr/share/gnome-session/sessions 2>/dev/null | tr '\n' ' ')"
   if have glxinfo; then
-    log "graphics: $(LIBGL_ALWAYS_SOFTWARE=1 glxinfo -B 2>/dev/null | tr '\n' ' ' | cut -c1-180)"
+    log "graphics: $(LIBGL_ALWAYS_SOFTWARE=1 glxinfo -B 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
   fi
-  log "shell version: $(gnome-shell --version 2>/dev/null | head -1)"
-  log "sessions: $(ls /usr/share/gnome-session/sessions 2>/dev/null | tr '\n' ' ')"
-  log "x11 flag: $(gnome-shell --help 2>/dev/null | grep -c -- '--x11') wayland flag: $(gnome-shell --help 2>/dev/null | grep -c -- '--wayland')"
 
   # First choice: the complete Ubuntu session (settings daemon, dock, everything).
-  if have gnome-session; then
-    log "starting the Ubuntu (GNOME) session"
-    spawn gnome-session gnome-session --session=ubuntu
-    if wait_for_shell 60; then
-      finish_gnome_start
-      return 0
-    fi
-    warn "gnome-session did not bring up the shell; trying the shell on its own"
-    tail -n 15 "$LOGS/gnome-session.log" >&2 || true
-    stop_svc gnome-session
-    sleep 2
+  log "starting the Ubuntu (GNOME) session"
+  spawn gnome-session gnome-session --session=ubuntu
+  if wait_for_shell 60 && shell_stays 20; then
+    finish_gnome_start
+    return 0
   fi
+  warn "gnome-session did not keep the shell running; trying the shell on its own"
+  tail -n 15 "$LOGS/gnome-session.log" >&2 || true
+  stop_svc gnome-session
+  sleep 2
 
   # Second choice: GNOME Shell itself (still the Ubuntu top bar + dock + Yaru).
   log "starting GNOME Shell directly (gnome-shell --x11)"
   spawn gnome-shell gnome-shell --x11
-  if wait_for_shell 60; then
+  if wait_for_shell 60 && shell_stays 20; then
     finish_gnome_start
     return 0
   fi
@@ -509,8 +552,13 @@ wait_for_shell() {   # wait_for_shell <seconds>
   return 1
 }
 
+shell_stays() {   # shell_stays <seconds>: still alive after a while? (crash detection)
+  sleep "${1:-20}"
+  gnome_alive
+}
+
 finish_gnome_start() {
-  sleep 3
+  sleep 2
   gsettings set org.gnome.desktop.interface enable-animations false >/dev/null 2>&1 || true
   log "GNOME Shell is up"
 }
@@ -750,9 +798,11 @@ boot() {
 
   local mode; mode="$(pick_desktop_mode)"
   log "session start ${SESSION_START} (${RESOLUTION}, budget ${SESSION_SECONDS}s, desktop ${mode})"
+  rm -f "$WORK/gnome-fails"
   start_x
   set_wallpaper
   write_desktop_entries
+  ensure_session_bus
   if [ "$mode" = "ubuntu" ]; then
     if ! start_gnome; then
       warn "falling back to the light classic desktop"
@@ -796,12 +846,22 @@ healthcheck() {
   fi
   if [ "${DESKTOP_ACTIVE:-classic}" = "ubuntu" ]; then
     if ! gnome_alive; then
-      warn "the GNOME session died: restarting it"
-      stop_svc gnome-session; stop_svc gnome-shell
-      if ! start_gnome; then
-        warn "GNOME did not come back: switching to the classic desktop"
+      local fails
+      fails=$(cat "$WORK/gnome-fails" 2>/dev/null || echo 0)
+      fails=$(( fails + 1 ))
+      echo "$fails" > "$WORK/gnome-fails"
+      if [ "$fails" -gt 2 ]; then
+        warn "GNOME Shell kept dying here: staying on the classic desktop for the rest of this session"
         DESKTOP_ACTIVE=classic
         start_wm; start_compositor; start_shelf
+      else
+        warn "the GNOME session died (attempt ${fails} of 2): restarting it"
+        stop_svc gnome-session; stop_svc gnome-shell
+        if ! start_gnome; then
+          warn "GNOME did not come back: switching to the classic desktop"
+          DESKTOP_ACTIVE=classic
+          start_wm; start_compositor; start_shelf
+        fi
       fi
     fi
   else
