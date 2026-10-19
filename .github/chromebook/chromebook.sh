@@ -659,6 +659,9 @@ prepare_vnc_password() {   # turn $VNC_PASSWORD into the obfuscated file x11vnc 
   if [ "${#VNC_PASSWORD}" -gt "$VNC_PASS_MAX" ]; then
     warn "VNC passwords are limited to ${VNC_PASS_MAX} characters; only the first ${VNC_PASS_MAX} are used"
   fi
+  case "$VNC_PASSWORD" in
+    -*) warn "a password that starts with '-' confuses x11vnc's option parser; use one that starts with a letter or digit" ;;
+  esac
   if ! x11vnc -storepasswd "$VNC_PASSWORD" "$VNC_PASSFILE" >/dev/null 2>&1; then
     rm -f "$VNC_PASSFILE"
     warn "could not write $VNC_PASSFILE: the desktop stays open (check the x11vnc package)"
@@ -715,6 +718,24 @@ auth_line() {   # one-liner for logs/status: states the truth, never the passwor
     *,2,*) printf 'on (RFB password required)' ;;
     *)     printf 'on (not verified: %s)' "$types" ;;
   esac
+}
+
+check_public_url() {   # prove that the tunnel really serves the session before we announce it
+  local url="${1:-}" i code novnc
+  [ -n "$url" ] || { warn "the tunnel did not publish a URL"; return 1; }
+  url="${url%/}"
+  for i in $(seq 5); do
+    code="$(curl -s -o /dev/null -m 15 -w '%{http_code}' "$url/" 2>/dev/null || true)"
+    [ "$code" = "200" ] && break
+    sleep 4
+  done
+  if [ "$code" != "200" ]; then
+    warn "the public URL answered HTTP ${code:-?} (try reloading in a moment)"
+    return 1
+  fi
+  novnc="$(curl -s -o /dev/null -m 15 -w '%{http_code}' "$url/vnc.html" 2>/dev/null || true)"
+  log "public check: $url/ -> HTTP 200, /vnc.html -> HTTP ${novnc:-?}"
+  [ "$novnc" = "200" ] || warn "the noVNC page did not answer through the tunnel (HTTP ${novnc:-?})"
 }
 
 start_vnc() {
@@ -985,6 +1006,7 @@ boot() {
   render_pages
   start_chrome
   save_state
+  check_public_url "$(public_url)" || true
   announce "$(public_url)"
 }
 
@@ -1039,6 +1061,7 @@ healthcheck() {
     warn "cloudflared died: restarting (the public URL will change)"
     if start_tunnel; then
       render_pages
+      check_public_url "$(public_url)" || true
       announce "$(public_url)"
     fi
   fi
